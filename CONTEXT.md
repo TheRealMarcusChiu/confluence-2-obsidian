@@ -18,6 +18,7 @@ Obsidian vault — a local directory of Markdown files.
 - **Vault structure**: mirrors Confluence page tree at full depth — each ancestor page becomes a directory; the leaf page is a `.md` file; ancestor pages with children exist as both a directory and a `.md` file at that level (e.g., `PROJ/Architecture/Backend/Services.md` alongside `PROJ/Architecture/Backend/Services/Auth Service.md`)
 - **Language**: Python
 - **HTML-to-Markdown**: custom recursive parser using BeautifulSoup; walks the Confluence XML tree in one pass, handling standard HTML elements and `ac:` macros together
+- **Block spacing**: tight packing — no blank lines between block-level elements (headings, code blocks, lists, callouts, dataview blocks, tables, etc.). Two exceptions: (1) consecutive paragraphs are separated by a blank line (Markdown requires it), and (2) `^excerpt` block anchor is always followed by a blank line. A `<p>` containing only a structured-macro is unwrapped (the macro renders as its own block, no paragraph spacing)
 - **Hard line breaks**: `<br/>` outside HTML contexts → backslash hard break (`\` at end of line); `<br/>` inside raw HTML (e.g., within a color span) needs no special handling
 - **Macro: Children Display** → inserted only when the Confluence page explicitly contains the macro; renders as a Dataview query block with `WHERE file.folder = this.file.folder + "/" + this.file.name` (dynamic, direct children only)
 - **Heading levels**: `<h1>` → `#`, `<h2>` → `##`, `<h3>` → `###`; `<h4>`, `<h5>`, `<h6>` all clamp to `######` (the deepest Markdown heading)

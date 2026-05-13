@@ -40,7 +40,10 @@ class Converter:
 
     def _render(self, node) -> str:
         if isinstance(node, NavigableString):
-            return str(node)
+            text = str(node)
+            if text.strip() == '' and '\n' in text:
+                return ''
+            return text
         if isinstance(node, Tag):
             return self._render_tag(node)
         return self._render_children(node)
@@ -57,10 +60,13 @@ class Converter:
         name = (tag.name or '').lower()
 
         if name == 'p':
+            macro_only = self._is_macro_only_paragraph(tag)
+            if macro_only:
+                return ''.join(self._render(c) for c in tag.children)
             inner = self._render_children(tag).strip()
             if not inner or all(c in ' \t\n\\' for c in inner):
                 return ''
-            return '\n\n' + inner + '\n\n'
+            return '\n\n' + inner
         if name == 'br':
             return '\\\n'
         if name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
@@ -74,7 +80,7 @@ class Converter:
         if name == 'code':
             return f"`{self._inline(tag)}`"
         if name == 'pre':
-            return f"\n```\n{self._render_children(tag)}\n```\n"
+            return f"\n```\n{self._render_children(tag)}\n```"
         if name == 'a':
             return self._render_a(tag)
         if name in ('ul', 'ol'):
@@ -88,7 +94,7 @@ class Converter:
         if name == 'span':
             return self._render_children(tag)
         if name == 'hr':
-            return '\n\n---\n\n'
+            return '\n---'
         if name == 'ac:structured-macro':
             return self._render_macro(tag)
         if name == 'ac:link':
@@ -108,7 +114,22 @@ class Converter:
     def _render_heading(self, tag: Tag, level: int) -> str:
         new_level = level if level <= 3 else 6
         text = self._inline(tag)
-        return '\n\n' + '#' * new_level + ' ' + text + '\n\n'
+        return '\n' + '#' * new_level + ' ' + text
+
+    def _is_macro_only_paragraph(self, tag: Tag) -> bool:
+        macros = []
+        for child in tag.children:
+            if isinstance(child, NavigableString):
+                if str(child).strip():
+                    return False
+            elif isinstance(child, Tag):
+                if child.name == 'ac:structured-macro':
+                    macros.append(child)
+                elif child.name == 'br':
+                    continue
+                else:
+                    return False
+        return len(macros) >= 1
 
     def _render_a(self, tag: Tag) -> str:
         href = tag.attrs.get('href', '')
@@ -120,7 +141,7 @@ class Converter:
         return f"[{text}]({href})"
 
     def _render_list(self, tag: Tag, ordered: bool) -> str:
-        return '\n\n' + self._render_list_inner(tag, ordered, depth=0) + '\n\n'
+        return '\n' + self._render_list_inner(tag, ordered, depth=0)
 
     def _render_list_inner(self, tag: Tag, ordered: bool, depth: int) -> str:
         items = [c for c in tag.children if isinstance(c, Tag) and c.name == 'li']
@@ -146,12 +167,12 @@ class Converter:
         if not inner:
             return ''
         quoted = '\n'.join(f"> {line}" for line in inner.split('\n'))
-        return '\n\n' + quoted + '\n\n'
+        return '\n' + quoted
 
     def _render_table(self, tag: Tag) -> str:
         for cell in tag.find_all(['td', 'th']):
             if cell.attrs.get('colspan') or cell.attrs.get('rowspan'):
-                return '\n\n' + str(tag) + '\n\n'
+                return '\n' + str(tag)
         rows = tag.find_all('tr')
         if not rows:
             return ''
@@ -165,7 +186,7 @@ class Converter:
             lines.append('| ' + ' | '.join(texts) + ' |')
             if i == 0:
                 lines.append('| ' + ' | '.join('---' for _ in cells) + ' |')
-        return '\n\n' + '\n'.join(lines) + '\n\n'
+        return '\n' + '\n'.join(lines)
 
     DROPPED_SILENTLY = frozenset({
         'anchor', 'toc',
@@ -186,7 +207,7 @@ class Converter:
             return f"${body}$"
         if name == 'latex-block':
             body = self._macro_text_body(tag).strip()
-            return f"\n\n$${body}$$\n\n"
+            return f"\n$${body}$$"
         if name == 'code':
             return self._render_code_macro(tag)
         if name == 'info':
@@ -210,11 +231,11 @@ class Converter:
 
     def _dataview_children(self) -> str:
         return (
-            '\n\n```dataview\n'
+            '\n```dataview\n'
             'LIST\n'
             'FROM ""\n'
             'WHERE file.folder = this.file.folder + "/" + this.file.name\n'
-            '```\n\n'
+            '```'
         )
 
     def _render_excerpt(self, tag: Tag) -> str:
@@ -225,7 +246,7 @@ class Converter:
             inner = self._render_children(body_tag).strip()
         if not inner:
             return ''
-        return f"\n\n```excerpt\n{inner}\n```\n^excerpt\n\n"
+        return f"\n```excerpt\n{inner}\n```\n^excerpt\n\n"
 
     def _render_callout(self, tag: Tag, callout_type: str) -> str:
         body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
@@ -236,7 +257,7 @@ class Converter:
         if not inner:
             return ''
         quoted = '\n'.join(f"> {line}" if line else ">" for line in inner.split('\n'))
-        return f"\n\n> [!{callout_type}]\n{quoted}\n\n"
+        return f"\n> [!{callout_type}]\n{quoted}"
 
     def _direct_parameter(self, tag: Tag, name: str) -> Tag | None:
         for child in tag.children:
@@ -255,14 +276,14 @@ class Converter:
         body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
         body = self._render_children(body_tag).strip() if body_tag is not None else ''
         if not title:
-            return f"\n\n{body}\n\n" if body else ''
+            return f"\n{body}" if body else ''
         safe_title = _escape_html(title)
-        return f"\n\n<details>\n<summary>{safe_title}</summary>\n\n{body}\n\n</details>\n\n"
+        return f"\n<details>\n<summary>{safe_title}</summary>\n\n{body}\n\n</details>"
 
     def _render_ui_tabs(self, tag: Tag) -> str:
         body_tag = tag.find('ac:rich-text-body')
         target = body_tag if body_tag is not None else tag
-        return '\n\n' + self._render_children(target).strip() + '\n\n'
+        return '\n' + self._render_children(target).strip()
 
     def _render_widget(self, tag: Tag) -> str:
         param = self._direct_parameter(tag, 'url')
@@ -287,12 +308,12 @@ class Converter:
     def _render_recently_updated(self, tag: Tag) -> str:
         max_val = self._direct_parameter_text(tag, 'max') or '15'
         return (
-            '\n\n```dataview\n'
+            '\n```dataview\n'
             'LIST\n'
             'FROM ""\n'
             'SORT modified DESC\n'
             f'LIMIT {max_val}\n'
-            '```\n\n'
+            '```'
         )
 
     def _render_excerpt_include(self, tag: Tag) -> str:
@@ -319,7 +340,7 @@ class Converter:
                 language = param.get_text().strip()
                 break
         body = self._macro_text_body(tag)
-        return f"\n\n```{language}\n{body}\n```\n\n"
+        return f"\n```{language}\n{body}\n```"
 
     def _render_ac_link(self, tag: Tag) -> str:
         page = tag.find('ri:page')

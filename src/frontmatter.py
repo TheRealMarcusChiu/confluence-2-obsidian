@@ -41,5 +41,4 @@ def build_frontmatter(page: dict, confluence_base_url: str) -> str:
         for label in labels:
             lines.append(f"  - {label}")
     lines.append("---")
-    lines.append("")
     return "\n".join(lines) + "\n"

@@ -334,6 +334,42 @@ def test_macro_recently_updated_defaults_to_15_when_max_missing():
     assert "LIMIT 15" in out
 
 
+def test_spacing_no_blank_line_between_heading_and_list():
+    xml = "<h1>Title</h1>\n<ul><li>item</li></ul>"
+    out = convert(xml)
+    assert out == "# Title\n- item"
+
+
+def test_spacing_no_blank_line_between_heading_and_code_block():
+    xml = '<h1>Title</h1>\n<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">py</ac:parameter><ac:plain-text-body><![CDATA[x = 1]]></ac:plain-text-body></ac:structured-macro>'
+    out = convert(xml)
+    assert out == "# Title\n```py\nx = 1\n```"
+
+
+def test_spacing_blank_line_after_excerpt_anchor():
+    xml = '<ac:structured-macro ac:name="excerpt"><ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro><h1>Next</h1>'
+    out = convert(xml)
+    assert "^excerpt\n\n# Next" in out
+
+
+def test_spacing_blank_line_between_paragraphs():
+    xml = "<p>first</p>\n<p>second</p>"
+    out = convert(xml)
+    assert out == "first\n\nsecond"
+
+
+def test_spacing_paragraph_wrapping_only_macro_is_unwrapped():
+    xml = '<h1>Subpages</h1>\n<p><ac:structured-macro ac:name="children" /></p>'
+    out = convert(xml)
+    assert out.startswith("# Subpages\n```dataview")
+
+
+def test_spacing_pure_whitespace_text_between_blocks_ignored():
+    xml = "<h1>A</h1>\n\n\n<h2>B</h2>"
+    out = convert(xml)
+    assert out == "# A\n## B"
+
+
 def test_attachments_referenced_tracked():
     c = Converter("MyPage")
     c.convert('<ac:image><ri:attachment ri:filename="a.png" /></ac:image>')
