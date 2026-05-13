@@ -197,7 +197,7 @@ class Converter:
     def _render_macro(self, tag: Tag) -> str:
         name = tag.attrs.get('ac:name', '')
         if name in ('children', 'children-display'):
-            return self._dataview_children()
+            return self._render_children_macro(tag)
         if name == 'excerpt':
             return self._render_excerpt(tag)
         if name == 'excerpt-include':
@@ -229,12 +229,29 @@ class Converter:
         self.unknown_macros.append(name)
         return ''
 
-    def _dataview_children(self) -> str:
+    def _render_children_macro(self, tag: Tag) -> str:
+        page_param = tag.find('ac:parameter', attrs={'ac:name': 'page'})
+        if page_param is None:
+            return self._dataview_children('this')
+        ri_page = page_param.find('ri:page')
+        title = ri_page.attrs.get('ri:content-title', '') if ri_page is not None else ''
+        if not title:
+            return self._dataview_children('this')
+        if title not in self.title_map:
+            self.warnings.append(f"children macro references unmigrated page: {title}")
+            return ''
+        return self._dataview_children(self.title_map[title])
+
+    def _dataview_children(self, target: str) -> str:
+        if target == 'this':
+            scope = 'this.file.folder + "/" + this.file.name'
+        else:
+            scope = f'[[{target}]].file.folder + "/" + [[{target}]].file.name'
         return (
             '\n```dataview\n'
             'LIST\n'
             'FROM ""\n'
-            'WHERE file.folder = this.file.folder + "/" + this.file.name\n'
+            f'WHERE file.folder = {scope}\n'
             '```'
         )
 

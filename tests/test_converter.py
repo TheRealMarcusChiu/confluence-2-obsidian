@@ -94,6 +94,32 @@ def test_macro_children_display():
     assert 'WHERE file.folder = this.file.folder + "/" + this.file.name' in out
 
 
+def test_macro_children_with_page_param_in_title_map():
+    xml = '<ac:structured-macro ac:name="children"><ac:parameter ac:name="page"><ac:link><ri:page ri:content-title="Computer" /></ac:link></ac:parameter></ac:structured-macro>'
+    c = Converter("p", title_map={"Computer": "Computer"})
+    out = c.convert(xml).strip()
+    assert "```dataview" in out
+    assert 'WHERE file.folder = [[Computer]].file.folder + "/" + [[Computer]].file.name' in out
+    assert c.warnings == []
+
+
+def test_macro_children_with_page_param_uses_collision_resolved_title():
+    xml = '<ac:structured-macro ac:name="children"><ac:parameter ac:name="page"><ac:link><ri:page ri:content-title="Design: v2" /></ac:link></ac:parameter></ac:structured-macro>'
+    c = Converter("p", title_map={"Design: v2": "Design  v2 (123)"})
+    out = c.convert(xml).strip()
+    assert 'WHERE file.folder = [[Design  v2 (123)]].file.folder + "/" + [[Design  v2 (123)]].file.name' in out
+
+
+def test_macro_children_with_page_param_not_migrated_drops_and_logs():
+    xml = '<ac:structured-macro ac:name="children"><ac:parameter ac:name="page"><ac:link><ri:page ri:content-title="External Page" /></ac:link></ac:parameter></ac:structured-macro>'
+    c = Converter("p", title_map={"Computer": "Computer"})
+    out = c.convert(xml).strip()
+    assert "```dataview" not in out
+    assert out == ""
+    assert len(c.warnings) == 1
+    assert "External Page" in c.warnings[0]
+
+
 def test_macro_excerpt_fenced_block_with_anchor():
     xml = '<ac:structured-macro ac:name="excerpt"><ac:rich-text-body><p>excerpt body</p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
