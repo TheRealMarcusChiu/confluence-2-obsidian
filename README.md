@@ -64,8 +64,25 @@ Progress prints `[n/total] Page Title`. Press Ctrl+C at any time — the run is 
 | `excerpt` | `> [!quote]` callout with `^excerpt` anchor |
 | `excerpt-include` | `![[Page#^excerpt]]` block transclusion |
 | `children` / `children-display` | Dataview query listing direct children |
+| `info` | `> [!info]` callout |
+| `warning` | `> [!warning]` callout |
+| `expand` / `ui-expand` | `<details><summary>title</summary>…</details>` (or inline body if no title) |
+| `ui-tabs` / `ui-tab` | Stacked `<details>` collapsibles per tab |
+| `widget` | `![](url)` Media Extended embed (used for YouTube) |
+| `view-file` / `viewpdf` / `multimedia` | `![[PageName/filename]]` attachment embed |
+| `recently-updated` | Dataview query sorted by `modified` frontmatter |
 
-Unknown macros are logged in `migration-report.md` and skipped.
+Silently dropped (no output, not logged): `anchor`, `toc`, `pagetree`, `pagetreesearch`, `livesearch`, `section`, `details`.
+
+Any other macro is logged in `migration-report.md` and skipped.
+
+## Recommended Obsidian plugins
+
+- **Dataview** (required) — needed for `children-display` and `recently-updated` query blocks.
+- **Media Extended** — required only if pages have YouTube embeds (`widget` / `<ri:url>` images).
+- **Folder Notes** (recommended) — treats the parent-page `.md` as the folder's index, matching the parent-as-both-file-and-directory output.
+
+Callouts, `<details>`, LaTeX math, wiki-links, and PDF/audio/video embeds are handled by Obsidian core — no plugin needed.
 
 ## Tests
 
