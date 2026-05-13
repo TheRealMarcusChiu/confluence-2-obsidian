@@ -20,8 +20,8 @@ Obsidian vault — a local directory of Markdown files.
 - **HTML-to-Markdown**: custom recursive parser using BeautifulSoup; walks the Confluence XML tree in one pass, handling standard HTML elements and `ac:` macros together
 - **Hard line breaks**: `<br/>` outside HTML contexts → backslash hard break (`\` at end of line); `<br/>` inside raw HTML (e.g., within a color span) needs no special handling
 - **Macro: Children Display** → inserted only when the Confluence page explicitly contains the macro; renders as a Dataview query block with `WHERE file.folder = this.file.folder + "/" + this.file.name` (dynamic, direct children only)
-- **Heading levels**: all body headings shifted down one level (`<h1>` → `##`, `<h2>` → `###`, etc.); `<h6>` → `#######` is logged as a warning since Obsidian doesn't render it as a heading
-- **Macro: Excerpt** → content wrapped in a `> [!quote]` callout block with `^excerpt` anchor appended; handles multi-block content as a single transcludable unit
+- **Heading levels**: `<h1>` → `#`, `<h2>` → `##`, `<h3>` → `###`; `<h4>`, `<h5>`, `<h6>` all clamp to `######` (the deepest Markdown heading)
+- **Macro: Excerpt** → rendered Markdown body wrapped in a fenced `` ```excerpt `` code block followed immediately by a `^excerpt` block anchor on the next line; rendered by a custom Obsidian plugin
 - **Macro: Include Excerpt** → `![[Page Title#^excerpt]]` Obsidian block transclusion; page title extracted from `ac:parameter[ac:name=""]` → `ri:page[@ri:content-title]`; `nopanel` parameter ignored
 - **Macro: `latex-inline`** → `$<CDATA>$` (Obsidian inline math)
 - **Macro: `latex-block`** → `$$<CDATA>$$` (Obsidian block math)

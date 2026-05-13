@@ -61,7 +61,7 @@ Progress prints `[n/total] Page Title`. Press Ctrl+C at any time — the run is 
 | `code` | Fenced code block with language |
 | `latex-inline` | `$…$` |
 | `latex-block` | `$$…$$` |
-| `excerpt` | `> [!quote]` callout with `^excerpt` anchor |
+| `excerpt` | Fenced `` ```excerpt `` code block with `^excerpt` anchor (rendered by a custom Obsidian plugin) |
 | `excerpt-include` | `![[Page#^excerpt]]` block transclusion |
 | `children` / `children-display` | Dataview query listing direct children |
 | `info` | `> [!info]` callout |

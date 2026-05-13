@@ -106,10 +106,8 @@ class Converter:
         return self._render_children(tag)
 
     def _render_heading(self, tag: Tag, level: int) -> str:
-        new_level = level + 1
+        new_level = level if level <= 3 else 6
         text = self._inline(tag)
-        if new_level > 6:
-            self.warnings.append(f"h6 demoted to ####### (page: {self.page_name})")
         return '\n\n' + '#' * new_level + ' ' + text + '\n\n'
 
     def _render_a(self, tag: Tag) -> str:
@@ -220,9 +218,16 @@ class Converter:
         )
 
     def _render_excerpt(self, tag: Tag) -> str:
-        return self._render_callout(tag, 'quote', anchor='excerpt')
+        body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
+        if body_tag is None:
+            inner = self._render_children(tag).strip()
+        else:
+            inner = self._render_children(body_tag).strip()
+        if not inner:
+            return ''
+        return f"\n\n```excerpt\n{inner}\n```\n^excerpt\n\n"
 
-    def _render_callout(self, tag: Tag, callout_type: str, anchor: str | None = None) -> str:
+    def _render_callout(self, tag: Tag, callout_type: str) -> str:
         body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
         if body_tag is None:
             inner = self._render_children(tag).strip()
@@ -231,8 +236,7 @@ class Converter:
         if not inner:
             return ''
         quoted = '\n'.join(f"> {line}" if line else ">" for line in inner.split('\n'))
-        suffix = f"\n> ^{anchor}" if anchor else ''
-        return f"\n\n> [!{callout_type}]\n{quoted}{suffix}\n\n"
+        return f"\n\n> [!{callout_type}]\n{quoted}\n\n"
 
     def _direct_parameter(self, tag: Tag, name: str) -> Tag | None:
         for child in tag.children:

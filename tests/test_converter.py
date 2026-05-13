@@ -13,17 +13,16 @@ def test_bold_and_italic():
     assert convert("<p><strong>bold</strong> and <em>italic</em></p>") == "**bold** and *italic*"
 
 
-def test_heading_shifts_down_one_level():
-    assert convert("<h1>Top</h1>") == "## Top"
-    assert convert("<h2>Sub</h2>") == "### Sub"
+def test_h1_h2_h3_pass_through_unchanged():
+    assert convert("<h1>Top</h1>") == "# Top"
+    assert convert("<h2>Sub</h2>") == "## Sub"
+    assert convert("<h3>Sub Sub</h3>") == "### Sub Sub"
+
+
+def test_h4_h5_h6_all_clamp_to_six_hashes():
+    assert convert("<h4>Astrology</h4>") == "###### Astrology"
     assert convert("<h5>Deep</h5>") == "###### Deep"
-
-
-def test_h6_becomes_seven_hashes_with_warning():
-    c = Converter("p")
-    out = c.convert("<h6>x</h6>")
-    assert "####### x" in out
-    assert any("h6" in w for w in c.warnings)
+    assert convert("<h6>Deepest</h6>") == "###### Deepest"
 
 
 def test_unordered_list():
@@ -95,12 +94,19 @@ def test_macro_children_display():
     assert 'WHERE file.folder = this.file.folder + "/" + this.file.name' in out
 
 
-def test_macro_excerpt_wraps_in_callout():
+def test_macro_excerpt_fenced_block_with_anchor():
     xml = '<ac:structured-macro ac:name="excerpt"><ac:rich-text-body><p>excerpt body</p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert "> [!quote]" in out
-    assert "> excerpt body" in out
-    assert "^excerpt" in out
+    assert "```excerpt\nexcerpt body\n```\n^excerpt" in out
+    assert "> [!quote]" not in out
+
+
+def test_macro_excerpt_preserves_markdown_inside_fence():
+    xml = '<ac:structured-macro ac:name="excerpt"><ac:rich-text-body><p><strong>bold</strong> and <em>italic</em></p></ac:rich-text-body></ac:structured-macro>'
+    out = convert(xml)
+    assert "```excerpt" in out
+    assert "**bold** and *italic*" in out
+    assert "```\n^excerpt" in out
 
 
 def test_macro_excerpt_include_extracts_page_title():
