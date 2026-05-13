@@ -26,6 +26,19 @@ Obsidian vault — a local directory of Markdown files.
 - **Macro: `latex-inline`** → `$<CDATA>$` (Obsidian inline math)
 - **Macro: `latex-block`** → `$$<CDATA>$$` (Obsidian block math)
 - **Macro: `code`** → fenced code block with language from `ac:parameter[language]`
+- **Macro: `info`** → `> [!info]` callout wrapping the body content
+- **Macro: `warning`** → `> [!warning]` callout wrapping the body content
+- **Macro: `expand`** / **`ui-expand`** → if `title` parameter present, HTML `<details><summary>TITLE</summary>\n\nbody\n\n</details>` (renders as collapsible in Obsidian reading view); if no title, body content from `ac:rich-text-body` rendered inline with no wrapper
+- **Macro: `anchor`** → silently dropped (Obsidian has no equivalent free-floating anchor; not logged as unknown)
+- **Macro: `toc`** → silently dropped (Obsidian's built-in Outline pane renders the heading tree natively)
+- **Macro: `view-file`** / **`viewpdf`** / **`multimedia`** → `![[PageName/filename]]` where filename comes from the embedded `ri:attachment`; the attachment is downloaded into the per-page subfolder (same flow as inline images); Obsidian renders PDFs, video, and audio inline natively in reading view
+- **Macro: `ui-tabs`** → emits nothing itself; children render sequentially in document order
+- **Macro: `ui-tab`** → HTML `<details><summary>TAB TITLE</summary>\n\nbody\n\n</details>` using the `title` parameter; horizontal layout and mutual-exclusivity of Confluence tabs is lost (stacked collapsibles instead)
+- **Macro: `widget`** → `![](url)` Media Extended embed; URL extracted from `ac:parameter[ac:name="url"]` → `ri:url[@ri:value]`; used in practice only for YouTube embeds
+- **Macro: `section`** → entire macro and body dropped (no output, not logged as unknown); used for multi-column layouts that have no Markdown equivalent
+- **Macro: `details`** → entire macro and body dropped (no output, not logged as unknown); Confluence Page Properties metadata has no Markdown equivalent
+- **Macro: `pagetree`** / **`pagetreesearch`** / **`livesearch`** → silently dropped; Obsidian's file explorer and global search cover these natively
+- **Macro: `recently-updated`** → Dataview query `LIST FROM "" SORT modified DESC LIMIT <max>` where `<max>` comes from the `max` parameter (default `15`); sorts by the `modified` frontmatter field (Confluence-recorded timestamp); `spaces`, `types`, and `theme` parameters are ignored
 - **Internal page link** → `[[Page Title|Display Text]]` Obsidian wiki link (page titles are unique across the instance)
 - **External URL link** → `[Display Text](url)` standard Markdown link
 - **YouTube embed** (`<ri:url>`) → `![](url)` Media Extended plugin syntax

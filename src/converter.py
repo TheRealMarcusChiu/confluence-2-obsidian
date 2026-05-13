@@ -58,7 +58,9 @@ class Converter:
 
         if name == 'p':
             inner = self._render_children(tag).strip()
-            return '\n\n' + inner + '\n\n' if inner else ''
+            if not inner or all(c in ' \t\n\\' for c in inner):
+                return ''
+            return '\n\n' + inner + '\n\n'
         if name == 'br':
             return '\\\n'
         if name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
@@ -167,6 +169,12 @@ class Converter:
                 lines.append('| ' + ' | '.join('---' for _ in cells) + ' |')
         return '\n\n' + '\n'.join(lines) + '\n\n'
 
+    DROPPED_SILENTLY = frozenset({
+        'anchor', 'toc',
+        'pagetree', 'pagetreesearch', 'livesearch',
+        'section', 'details',
+    })
+
     def _render_macro(self, tag: Tag) -> str:
         name = tag.attrs.get('ac:name', '')
         if name in ('children', 'children-display'):
@@ -183,6 +191,22 @@ class Converter:
             return f"\n\n$${body}$$\n\n"
         if name == 'code':
             return self._render_code_macro(tag)
+        if name == 'info':
+            return self._render_callout(tag, 'info')
+        if name == 'warning':
+            return self._render_callout(tag, 'warning')
+        if name in ('expand', 'ui-expand', 'ui-tab'):
+            return self._render_collapsible(tag)
+        if name == 'ui-tabs':
+            return self._render_ui_tabs(tag)
+        if name == 'widget':
+            return self._render_widget(tag)
+        if name in ('view-file', 'viewpdf', 'multimedia'):
+            return self._render_file_embed(tag)
+        if name == 'recently-updated':
+            return self._render_recently_updated(tag)
+        if name in self.DROPPED_SILENTLY:
+            return ''
         self.unknown_macros.append(name)
         return ''
 
@@ -196,6 +220,9 @@ class Converter:
         )
 
     def _render_excerpt(self, tag: Tag) -> str:
+        return self._render_callout(tag, 'quote', anchor='excerpt')
+
+    def _render_callout(self, tag: Tag, callout_type: str, anchor: str | None = None) -> str:
         body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
         if body_tag is None:
             inner = self._render_children(tag).strip()
@@ -204,7 +231,65 @@ class Converter:
         if not inner:
             return ''
         quoted = '\n'.join(f"> {line}" if line else ">" for line in inner.split('\n'))
-        return f"\n\n> [!quote]\n{quoted}\n> ^excerpt\n\n"
+        suffix = f"\n> ^{anchor}" if anchor else ''
+        return f"\n\n> [!{callout_type}]\n{quoted}{suffix}\n\n"
+
+    def _direct_parameter(self, tag: Tag, name: str) -> Tag | None:
+        for child in tag.children:
+            if (isinstance(child, Tag)
+                and child.name == 'ac:parameter'
+                and child.attrs.get('ac:name', None) == name):
+                return child
+        return None
+
+    def _direct_parameter_text(self, tag: Tag, name: str) -> str:
+        param = self._direct_parameter(tag, name)
+        return param.get_text().strip() if param is not None else ''
+
+    def _render_collapsible(self, tag: Tag) -> str:
+        title = self._direct_parameter_text(tag, 'title')
+        body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
+        body = self._render_children(body_tag).strip() if body_tag is not None else ''
+        if not title:
+            return f"\n\n{body}\n\n" if body else ''
+        safe_title = _escape_html(title)
+        return f"\n\n<details>\n<summary>{safe_title}</summary>\n\n{body}\n\n</details>\n\n"
+
+    def _render_ui_tabs(self, tag: Tag) -> str:
+        body_tag = tag.find('ac:rich-text-body')
+        target = body_tag if body_tag is not None else tag
+        return '\n\n' + self._render_children(target).strip() + '\n\n'
+
+    def _render_widget(self, tag: Tag) -> str:
+        param = self._direct_parameter(tag, 'url')
+        if param is None:
+            return ''
+        ri_url = param.find('ri:url')
+        href = ri_url.attrs.get('ri:value', '') if ri_url is not None else param.get_text().strip()
+        if not href:
+            return ''
+        return f"![]({href})"
+
+    def _render_file_embed(self, tag: Tag) -> str:
+        attach = tag.find('ri:attachment')
+        if attach is None:
+            return ''
+        filename = attach.attrs.get('ri:filename', '')
+        if not filename:
+            return ''
+        self.attachments_referenced.append(filename)
+        return f"![[{self.page_name}/{filename}]]"
+
+    def _render_recently_updated(self, tag: Tag) -> str:
+        max_val = self._direct_parameter_text(tag, 'max') or '15'
+        return (
+            '\n\n```dataview\n'
+            'LIST\n'
+            'FROM ""\n'
+            'SORT modified DESC\n'
+            f'LIMIT {max_val}\n'
+            '```\n\n'
+        )
 
     def _render_excerpt_include(self, tag: Tag) -> str:
         for param in tag.find_all('ac:parameter'):
