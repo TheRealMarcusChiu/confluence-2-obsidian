@@ -209,15 +209,23 @@ class Converter:
             + f'\n{indent}</{tag.name}>'
         )
 
+    TH_DEFAULT_BG = '#F4F5F7'
+
     def _table_filtered_attrs(self, tag: Tag) -> dict:
         keep = {k: v for k, v in tag.attrs.items() if k in self.TABLE_KEEP_ATTRS}
         if tag.name in ('td', 'th'):
             colour = tag.attrs.get('data-highlight-colour')
             if colour:
-                bg = f'background-color: {colour};'
-                existing = keep.get('style', '').rstrip().rstrip(';').rstrip()
-                keep['style'] = f'{existing}; {bg}' if existing else bg
+                if colour == 'grey':
+                    colour = self.TH_DEFAULT_BG
+                self._merge_style(keep, f'background-color: {colour};')
+            if tag.name == 'th' and 'background-color:' not in keep.get('style', ''):
+                self._merge_style(keep, f'background-color: {self.TH_DEFAULT_BG};')
         return keep
+
+    def _merge_style(self, keep: dict, addition: str) -> None:
+        existing = keep.get('style', '').rstrip().rstrip(';').rstrip()
+        keep['style'] = f'{existing}; {addition}' if existing else addition
 
     def _format_html_attrs(self, attrs: dict) -> str:
         if not attrs:

@@ -106,8 +106,8 @@ def test_table_emits_prettified_raw_html():
         "<table>\n"
         "    <tbody>\n"
         "        <tr>\n"
-        "            <th>A</th>\n"
-        "            <th>B</th>\n"
+        '            <th style="background-color: #F4F5F7;">A</th>\n'
+        '            <th style="background-color: #F4F5F7;">B</th>\n'
         "        </tr>\n"
         "        <tr>\n"
         "            <td>1</td>\n"
@@ -141,7 +141,7 @@ def test_table_data_highlight_colour_becomes_style():
     xml = '<table><tbody><tr><td data-highlight-colour="grey">x</td></tr></tbody></table>'
     out = convert(xml)
     assert 'data-highlight-colour' not in out
-    assert 'style="background-color: grey;"' in out
+    assert 'style="background-color: #F4F5F7;"' in out
 
 
 def test_table_style_attribute_kept_verbatim():
@@ -155,13 +155,45 @@ def test_table_cell_style_and_highlight_colour_merge():
     xml = '<table><tbody><tr><td style="text-align: center;" data-highlight-colour="grey">x</td></tr></tbody></table>'
     out = convert(xml)
     assert 'data-highlight-colour' not in out
-    assert 'style="text-align: center; background-color: grey;"' in out
+    assert 'style="text-align: center; background-color: #F4F5F7;"' in out
 
 
 def test_table_cell_style_without_trailing_semicolon_merges_cleanly():
     xml = '<table><tbody><tr><td style="text-align: center" data-highlight-colour="grey">x</td></tr></tbody></table>'
     out = convert(xml)
-    assert 'style="text-align: center; background-color: grey;"' in out
+    assert 'style="text-align: center; background-color: #F4F5F7;"' in out
+
+
+def test_table_th_with_no_styling_gets_auto_background():
+    xml = '<table><tbody><tr><th>head</th></tr></tbody></table>'
+    out = convert(xml)
+    assert '<th style="background-color: #F4F5F7;">head</th>' in out
+
+
+def test_table_th_with_explicit_data_highlight_skips_auto_background():
+    xml = '<table><tbody><tr><th data-highlight-colour="red">head</th></tr></tbody></table>'
+    out = convert(xml)
+    assert '<th style="background-color: red;">head</th>' in out
+    assert '#F4F5F7' not in out
+
+
+def test_table_th_with_explicit_background_in_style_skips_auto():
+    xml = '<table><tbody><tr><th style="background-color: yellow;">head</th></tr></tbody></table>'
+    out = convert(xml)
+    assert '<th style="background-color: yellow;">head</th>' in out
+    assert '#F4F5F7' not in out
+
+
+def test_table_th_with_non_background_style_appends_auto():
+    xml = '<table><tbody><tr><th style="text-align: center;">head</th></tr></tbody></table>'
+    out = convert(xml)
+    assert '<th style="text-align: center; background-color: #F4F5F7;">head</th>' in out
+
+
+def test_table_data_highlight_colour_other_than_grey_passes_through():
+    xml = '<table><tbody><tr><td data-highlight-colour="red">x</td></tr></tbody></table>'
+    out = convert(xml)
+    assert 'style="background-color: red;"' in out
 
 
 def test_table_cell_with_ac_link_no_body_uses_page_title():
@@ -197,7 +229,7 @@ def test_table_cell_with_ac_image_emitted_as_escaped_source_xml():
         '</ac:image></p></div></th></tr></tbody></table>'
     )
     out = convert(xml)
-    assert '<th rowspan="3">' in out
+    assert '<th rowspan="3" style="background-color: #F4F5F7;">' in out
     assert "content-wrapper" not in out
     assert "<div" not in out
     assert "<p>" not in out
@@ -263,7 +295,7 @@ def test_table_nested_table_applies_full_clean_rules():
     assert 'class="y"' not in out
     assert 'colgroup' not in out
     assert 'data-highlight-colour' not in out
-    assert 'style="background-color: grey;"' in out
+    assert 'style="background-color: #F4F5F7;"' in out
 
 
 def test_table_nested_table_with_surrounding_text_keeps_text_packed():
