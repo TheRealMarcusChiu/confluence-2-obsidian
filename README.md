@@ -34,25 +34,25 @@ Pass one or more Confluence space keys:
 .venv/bin/python migrate.py SPACEKEY1 SPACEKEY2
 ```
 
-Progress prints `[n/total] Page Title`. Press Ctrl+C at any time — the run is checkpointed after each successful page, so the next invocation resumes where it left off.
+Progress prints `[n/total] Page Title`. Migration is one-shot — Ctrl+C aborts the run, and the next invocation re-fetches and re-writes every page from scratch.
 
 ## Output
 
 ```
 <VAULT_PATH>/
 ├── SPACEKEY/
+│   ├── Parent Page.md
 │   └── Parent Page/
 │       ├── Child Page.md
 │       └── Child Page/
 │           └── attachment.png
-├── .migration-checkpoint.json
 └── migration-report.md
 ```
 
 - Each page → `.md` file with YAML frontmatter (title, created, modified, author, confluence_url, labels as tags).
-- Parent pages with children exist as both a directory and a `.md` file at the same level.
-- Attachments and inline images live in a per-page subfolder; referenced as `![[PageName/file]]`.
-- `migration-report.md` lists unknown macros, sanitized titles, collisions, page failures, and warnings.
+- Every page exists as both a `.md` file and a same-named directory at the same level (the directory holds child pages and per-page attachments).
+- Attachments and inline images live in the per-page subfolder; referenced as `![[PageName/file]]`.
+- `migration-report.md` lists unknown macros, collisions, page failures, and warnings.
 
 ## Supported macros
 

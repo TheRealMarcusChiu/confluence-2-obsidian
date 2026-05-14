@@ -50,9 +50,8 @@ Obsidian vault — a local directory of Markdown files.
 - **Unknown macros**: logged and skipped; a `migration-report.md` written to vault root with macro name, page, and count
 - **Tables**: simple tables (no `colspan`/`rowspan`) → Markdown pipe tables; tables with merged cells → raw HTML `<table>` block (Obsidian renders it in reading view)
 - **Filename sanitization**: invalid filesystem characters (`:`, `/`, `?`, `*`, `<`, `>`, `|`, `\`) in page titles are replaced with a space when used as file or directory names; post-sanitization collisions are resolved by suffixing the Confluence page ID (e.g., `Design  v2 (12345).md`) and logged prominently in `migration-report.md`
-- **Migration mode**: one-time (no incremental sync)
-- **Checkpoint/resume**: after each successfully migrated page, the page's Confluence ID is added to `.migration-checkpoint.json` at vault root; on restart the script fetches the full page list and skips any page whose ID is already in the checkpoint; Ctrl+C triggers a graceful stop that writes `migration-report.md` and flushes the checkpoint before exiting
-- **migration-report.md**: written to vault root on graceful stop, crash, or completion; contains all unknown macros encountered (macro name, page title, count) and all per-page failures (page title, error reason); failed pages are not checkpointed and will be retried on the next run
+- **Migration mode**: one-time, full re-run on every invocation (no incremental sync, no resume); Ctrl+C triggers a graceful stop that writes `migration-report.md` before exiting
+- **migration-report.md**: written to vault root on graceful stop, crash, or completion; contains all unknown macros encountered (macro name, page title, count) and all per-page failures (page title, error reason)
 - **Frontmatter**: title, created, modified, author, confluence_url, labels (as Obsidian tags)
 - **Config**: `.env` file (`CONFLUENCE_URL`, `CONFLUENCE_USER`, `CONFLUENCE_PASS`, `VAULT_PATH`, `CONFLUENCE_VERIFY_SSL`, `DOWNLOAD_ATTACHMENTS`); space keys passed as CLI args
 - **Progress display**: each page migration prints `[<n>/<total>] <Page Title>` to stdout

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.checkpoint import Checkpoint
 from src.confluence_client import ConfluenceClient
 from src.converter import Converter
 from src.frontmatter import build_frontmatter
@@ -91,7 +90,6 @@ def main():
     vault_path.mkdir(parents=True, exist_ok=True)
 
     client = ConfluenceClient(confluence_url, user, password, verify_ssl=verify_ssl)
-    checkpoint = Checkpoint(vault_path)
     report = MigrationReport()
     resolver = PathResolver(vault_path)
 
@@ -111,11 +109,7 @@ def main():
     exit_code = 0
     try:
         for index, (page, file_path, basename) in enumerate(resolved, 1):
-            page_id = str(page.get("id", ""))
             title = page.get("title", "")
-
-            if checkpoint.is_done(page_id):
-                continue
 
             print(f"[{index}/{total}] {title}")
             try:
@@ -130,7 +124,6 @@ def main():
                     download_attachments,
                 )
                 report.pages_migrated += 1
-                checkpoint.mark_done(page_id)
             except Exception as e:
                 report.record_failure(title, f"{type(e).__name__}: {e}")
                 print(f"  FAILED: {e}", file=sys.stderr)
@@ -144,7 +137,6 @@ def main():
         exit_code = 1
     finally:
         report.write(vault_path)
-        checkpoint.flush()
         print(f"Report written to {vault_path / 'migration-report.md'}")
         print(f"Pages migrated: {report.pages_migrated}/{total}")
 
