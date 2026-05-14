@@ -61,6 +61,31 @@ def test_sup_with_spaces_and_inline_markup():
     assert "y<sub>**k**</sub>" in out
 
 
+def test_inline_code_emitted_as_raw_html():
+    assert convert("<p>use <code>foo()</code> here</p>") == "use <code>foo()</code> here"
+
+
+def test_span_with_color_becomes_font():
+    xml = '<p><span style="color: rgb(128,128,128);">gray text</span></p>'
+    assert convert(xml) == '<font style="color: rgb(128,128,128);">gray text</font>'
+
+
+def test_span_without_color_is_stripped():
+    assert convert('<p><span class="x">plain</span></p>') == "plain"
+    assert convert('<p><span>plain</span></p>') == "plain"
+
+
+def test_span_with_color_and_other_styles_preserves_full_style():
+    xml = '<p><span style="color: rgb(255,0,0); background-color: yellow;">x</span></p>'
+    out = convert(xml)
+    assert '<font style="color: rgb(255,0,0); background-color: yellow;">x</font>' in out
+
+
+def test_colored_inline_code_composes():
+    xml = '<p><code><span style="color: rgb(128,128,128);">CODE</span></code></p>'
+    assert convert(xml) == '<code><font style="color: rgb(128,128,128);">CODE</font></code>'
+
+
 def test_external_link():
     out = convert('<p><a href="https://example.com">site</a></p>')
     assert "[site](https://example.com)" in out

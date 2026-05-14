@@ -80,7 +80,7 @@ class Converter:
         if name in ('sub', 'sup'):
             return f"<{name}>{self._inline(tag)}</{name}>"
         if name == 'code':
-            return f"`{self._inline(tag)}`"
+            return f"<code>{self._inline(tag)}</code>"
         if name == 'pre':
             return f"\n```\n{self._render_children(tag)}\n```"
         if name == 'a':
@@ -94,6 +94,9 @@ class Converter:
         if name == 'blockquote':
             return self._render_blockquote(tag)
         if name == 'span':
+            style = tag.attrs.get('style', '')
+            if 'color:' in style:
+                return f'<font style="{style}">{self._inline(tag)}</font>'
             return self._render_children(tag)
         if name == 'hr':
             return '\n---'
