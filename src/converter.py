@@ -77,6 +77,8 @@ class Converter:
             return f"*{self._inline(tag)}*"
         if name == 'u':
             return f"<u>{self._inline(tag)}</u>"
+        if name in ('sub', 'sup'):
+            return f"<{name}>{self._inline(tag)}</{name}>"
         if name == 'code':
             return f"`{self._inline(tag)}`"
         if name == 'pre':

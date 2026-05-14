@@ -47,6 +47,20 @@ def test_br_becomes_backslash_break():
     assert "line1\\\nline2" in out
 
 
+def test_sub_preserved_as_raw_html():
+    assert convert("<p>H<sub>2</sub>O</p>") == "H<sub>2</sub>O"
+
+
+def test_sup_preserved_as_raw_html():
+    assert convert("<p>E = mc<sup>2</sup></p>") == "E = mc<sup>2</sup>"
+
+
+def test_sup_with_spaces_and_inline_markup():
+    out = convert("<p>x<sup>n + 1</sup> and y<sub><strong>k</strong></sub></p>")
+    assert "x<sup>n + 1</sup>" in out
+    assert "y<sub>**k**</sub>" in out
+
+
 def test_external_link():
     out = convert('<p><a href="https://example.com">site</a></p>')
     assert "[site](https://example.com)" in out
