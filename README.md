@@ -80,7 +80,7 @@ Any other macro is logged in `migration-report.md` and skipped.
 
 - **Dataview** (required) — needed for `children-display` and `recently-updated` query blocks.
 - **Media Extended** — required only if pages have YouTube embeds (`widget` / `<ri:url>` images).
-- **Folder Notes** (recommended) — treats the parent-page `.md` as the folder's index, matching the parent-as-both-file-and-directory output.
+- **Folder Notes** (required for the intended UX) — every page is emitted as both a `.md` file and a same-named folder; this plugin treats the `.md` as the folder's index so the doubled entries collapse into one navigable item in the explorer.
 
 Callouts, `<details>`, LaTeX math, wiki-links, and PDF/audio/video embeds are handled by Obsidian core — no plugin needed.
 

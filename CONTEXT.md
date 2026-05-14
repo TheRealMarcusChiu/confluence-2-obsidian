@@ -15,7 +15,7 @@ Obsidian vault — a local directory of Markdown files.
 - **Auth**: Basic Auth (username + password in config/env)
 - **Scope**: specific spaces, identified by space key, passed as CLI arguments
 - **Content types**: pages and attachments only (no blog posts, no comments)
-- **Vault structure**: mirrors Confluence page tree at full depth — each ancestor page becomes a directory; the leaf page is a `.md` file; ancestor pages with children exist as both a directory and a `.md` file at that level (e.g., `PROJ/Architecture/Backend/Services.md` alongside `PROJ/Architecture/Backend/Services/Auth Service.md`)
+- **Vault structure**: mirrors Confluence page tree at full depth. Every page is emitted as both a `.md` file AND a same-named directory at the same level (e.g., `PROJ/Architecture.md` alongside `PROJ/Architecture/`). The directory holds the page's child pages (recursively) and any per-page attachments. Leaf pages with no children and no attachments still get an empty directory — designed for the Obsidian "Folder Notes" plugin, which treats the sibling `.md` as the folder index.
 - **Language**: Python
 - **HTML-to-Markdown**: custom recursive parser using BeautifulSoup; walks the Confluence XML tree in one pass, handling standard HTML elements and `ac:` macros together
 - **Block spacing**: tight packing — no blank lines between block-level elements (headings, code blocks, lists, callouts, dataview blocks, tables, etc.). Two exceptions: (1) consecutive paragraphs are separated by a blank line (Markdown requires it), and (2) `^excerpt` block anchor is always followed by a blank line. A `<p>` containing only a structured-macro is unwrapped (the macro renders as its own block, no paragraph spacing)

@@ -55,6 +55,7 @@ def migrate_page(
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(frontmatter + markdown, encoding="utf-8")
+    (file_path.parent / basename).mkdir(exist_ok=True)
 
     report.record_unknown_macros(title, converter.unknown_macros)
     report.record_warnings(converter.warnings)
