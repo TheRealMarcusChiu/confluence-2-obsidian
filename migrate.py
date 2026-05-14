@@ -105,8 +105,6 @@ def main():
     total = len(resolved)
     print(f"Total pages: {total}")
 
-    for original, sanitized in resolver.sanitizations:
-        report.record_sanitization(original, sanitized)
     for title, page_id, name in resolver.collisions:
         report.record_collision(title, page_id, name)
 

@@ -9,7 +9,6 @@ class MigrationReport:
     def __init__(self):
         self.unknown_macros: Counter = Counter()
         self.unknown_macro_pages: dict[str, set[str]] = {}
-        self.sanitized_titles: list[tuple[str, str]] = []
         self.title_collisions: list[tuple[str, str, str]] = []
         self.page_failures: list[tuple[str, str]] = []
         self.warnings: list[str] = []
@@ -19,9 +18,6 @@ class MigrationReport:
         for name in macro_names:
             self.unknown_macros[name] += 1
             self.unknown_macro_pages.setdefault(name, set()).add(page_title)
-
-    def record_sanitization(self, original: str, sanitized: str):
-        self.sanitized_titles.append((original, sanitized))
 
     def record_collision(self, title: str, page_id: str, resolved_name: str):
         self.title_collisions.append((title, page_id, resolved_name))
@@ -59,16 +55,6 @@ class MigrationReport:
             lines.append("| --- | --- | --- |")
             for title, pid, resolved in self.title_collisions:
                 lines.append(f"| {title} | {pid} | {resolved} |")
-        lines.append("")
-
-        lines.append("## Sanitized Titles")
-        if not self.sanitized_titles:
-            lines.append("None.")
-        else:
-            lines.append("| Original | Sanitized |")
-            lines.append("| --- | --- |")
-            for orig, san in self.sanitized_titles:
-                lines.append(f"| {orig} | {san} |")
         lines.append("")
 
         lines.append("## Page Failures")

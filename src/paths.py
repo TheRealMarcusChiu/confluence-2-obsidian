@@ -8,7 +8,6 @@ class PathResolver:
         self.vault_path = vault_path
         self.taken: dict[Path, str] = {}
         self.title_map: dict[str, str] = {}
-        self.sanitizations: list[tuple[str, str]] = []
         self.collisions: list[tuple[str, str, str]] = []
 
     def resolve(self, page: dict) -> tuple[Path, str]:
@@ -19,8 +18,8 @@ class PathResolver:
 
         parts = [space_key]
         for ancestor in ancestors:
-            parts.append(self._sanitize_track(ancestor.get("title", "")))
-        sanitized_title = self._sanitize_track(title)
+            parts.append(sanitize_title(ancestor.get("title", "")))
+        sanitized_title = sanitize_title(title)
         directory = self.vault_path.joinpath(*parts) if parts else self.vault_path
         candidate = directory / f"{sanitized_title}.md"
         basename = sanitized_title
@@ -33,9 +32,3 @@ class PathResolver:
         self.taken[candidate] = page_id
         self.title_map[title] = basename
         return candidate, basename
-
-    def _sanitize_track(self, original: str) -> str:
-        sanitized = sanitize_title(original)
-        if sanitized != original and (original, sanitized) not in self.sanitizations:
-            self.sanitizations.append((original, sanitized))
-        return sanitized

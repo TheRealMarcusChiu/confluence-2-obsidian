@@ -19,11 +19,10 @@ def test_simple_path():
     assert base == "Child"
 
 
-def test_sanitized_title_tracked():
+def test_sanitized_title_used_in_path():
     r = PathResolver(Path("/v"))
-    p, base = r.resolve(make_page("1", "Design: v2", "PROJ", []))
+    p, _ = r.resolve(make_page("1", "Design: v2", "PROJ", []))
     assert p == Path("/v/PROJ/Design  v2.md")
-    assert ("Design: v2", "Design  v2") in r.sanitizations
 
 
 def test_collision_resolved_with_page_id():
