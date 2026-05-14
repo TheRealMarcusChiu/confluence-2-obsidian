@@ -251,6 +251,10 @@ class Converter:
     def _render_cell_node(self, tag: Tag, depth: int) -> str:
         if tag.name == 'ac:link':
             return self._extract_ac_link_text(tag)
+        if tag.name == 'ac:image':
+            img = self._render_ac_image_in_cell(tag)
+            if img is not None:
+                return img
         if tag.name and tag.name.startswith('ac:'):
             return str(tag).replace('<', '&lt;').replace('>', '&gt;')
         if self._cell_wrapper_should_strip(tag):
@@ -285,6 +289,23 @@ class Converter:
                     return False
                 has_macro = True
         return has_macro
+
+    def _render_ac_image_in_cell(self, tag: Tag) -> str | None:
+        ri = tag.find('ri:attachment')
+        filename = ri.attrs.get('ri:filename') if ri is not None else None
+        if not filename:
+            self.warnings.append(
+                f"unsupported ac:image (no ri:filename) on page '{self.page_name}'"
+            )
+            return None
+        parts = [f'src="{filename}"']
+        width = tag.attrs.get('ac:width')
+        if width:
+            parts.append(f'width="{width}"')
+        height = tag.attrs.get('ac:height')
+        if height:
+            parts.append(f'height="{height}"')
+        return f'<img {" ".join(parts)} />'
 
     def _extract_ac_link_text(self, tag: Tag) -> str:
         body = tag.find('ac:plain-text-link-body')

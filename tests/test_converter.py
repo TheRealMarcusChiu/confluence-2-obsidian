@@ -220,7 +220,7 @@ def test_table_cell_with_ac_macro_emitted_as_escaped_source_xml():
     assert "<ac:structured-macro" not in out
 
 
-def test_table_cell_with_ac_image_emitted_as_escaped_source_xml():
+def test_table_cell_with_ac_image_transforms_to_img_tag():
     xml = (
         '<table><tbody><tr><th rowspan="3">'
         '<div class="content-wrapper">'
@@ -233,11 +233,38 @@ def test_table_cell_with_ac_image_emitted_as_escaped_source_xml():
     assert "content-wrapper" not in out
     assert "<div" not in out
     assert "<p>" not in out
+    assert '<img src="Screenshot 2026-04-30 at 2.00.51 PM.png" height="250" />' in out
+    assert "ac:image" not in out
+    assert "ac:thumbnail" not in out
+    assert "ac:style" not in out
+
+
+def test_table_cell_ac_image_minimal():
+    xml = '<table><tbody><tr><td><ac:image><ri:attachment ri:filename="x.png" /></ac:image></td></tr></tbody></table>'
+    out = convert(xml)
+    assert '<img src="x.png" />' in out
+
+
+def test_table_cell_ac_image_with_width():
+    xml = '<table><tbody><tr><td><ac:image ac:width="450"><ri:attachment ri:filename="image.png" /></ac:image></td></tr></tbody></table>'
+    out = convert(xml)
+    assert '<img src="image.png" width="450" />' in out
+
+
+def test_table_cell_ac_image_with_width_and_height():
+    xml = '<table><tbody><tr><td><ac:image ac:width="450" ac:height="200"><ri:attachment ri:filename="image.png" /></ac:image></td></tr></tbody></table>'
+    out = convert(xml)
+    assert '<img src="image.png" width="450" height="200" />' in out
+
+
+def test_table_cell_ac_image_without_filename_falls_back_to_escape_and_logs():
+    xml = '<table><tbody><tr><td><ac:image><ri:url ri:value="https://x.com/y.png" /></ac:image></td></tr></tbody></table>'
+    from src.converter import Converter
+    c = Converter("MyPage")
+    out = c.convert(xml).strip()
     assert "&lt;ac:image" in out
-    assert 'ac:height="250"' in out
-    assert "&lt;ri:attachment" in out
-    assert 'ri:filename="Screenshot 2026-04-30 at 2.00.51 PM.png"' in out
-    assert "&lt;/ac:image&gt;" in out
+    assert "<img" not in out
+    assert any("ac:image" in w and "MyPage" in w for w in c.warnings)
 
 
 def test_table_cell_strips_div_content_wrapper():
@@ -249,10 +276,11 @@ def test_table_cell_strips_div_content_wrapper():
 
 
 def test_table_cell_strips_p_around_ac_macro():
-    xml = '<table><tbody><tr><td><p><ac:image><ri:attachment ri:filename="x.png" /></ac:image></p></td></tr></tbody></table>'
+    xml = '<table><tbody><tr><td><p><ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro></p></td></tr></tbody></table>'
     out = convert(xml)
-    assert "<p>" not in out
-    assert "&lt;ac:image" in out
+    assert "&lt;ac:structured-macro" in out
+    out_first_p_stripped = out.split('<td>', 1)[1].split('</td>', 1)[0]
+    assert not out_first_p_stripped.startswith('<p>')
 
 
 def test_table_nested_table_recursively_prettified():
@@ -311,11 +339,11 @@ def test_table_nested_table_with_surrounding_text_keeps_text_packed():
 
 
 def test_table_cell_keeps_p_with_mixed_text_and_ac_macro():
-    xml = '<table><tbody><tr><td><p>before <ac:image><ri:attachment ri:filename="x.png" /></ac:image> after</p></td></tr></tbody></table>'
+    xml = '<table><tbody><tr><td><p>before <ac:structured-macro ac:name="info"><ac:rich-text-body><p>n</p></ac:rich-text-body></ac:structured-macro> after</p></td></tr></tbody></table>'
     out = convert(xml)
     assert "<p>before " in out
     assert " after</p>" in out
-    assert "&lt;ac:image" in out
+    assert "&lt;ac:structured-macro" in out
 
 
 def test_table_cell_with_multiple_paragraphs_stays_inline():
