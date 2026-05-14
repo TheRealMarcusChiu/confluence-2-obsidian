@@ -235,7 +235,12 @@ class Converter:
         if tag.name == 'ac:link':
             return self._extract_ac_link_text(tag)
         if tag.name and tag.name.startswith('ac:'):
-            return tag.get_text()
+            return str(tag).replace('<', '&lt;').replace('>', '&gt;')
+        if self._cell_wrapper_should_strip(tag):
+            return ''.join(
+                str(c) if isinstance(c, NavigableString) else self._render_cell_node(c)
+                for c in tag.children
+            )
         attr_str = self._format_html_attrs(self._table_filtered_attrs(tag))
         children = list(tag.children)
         if not children:
@@ -247,6 +252,28 @@ class Converter:
             for c in children
         )
         return f'<{tag.name}{attr_str}>{inner}</{tag.name}>'
+
+    def _cell_wrapper_should_strip(self, tag: Tag) -> bool:
+        if tag.name == 'div' and 'content-wrapper' in (tag.attrs.get('class') or []):
+            return True
+        if tag.name == 'p' and self._p_has_only_escaped_ac_macros(tag):
+            return True
+        return False
+
+    def _p_has_only_escaped_ac_macros(self, p: Tag) -> bool:
+        has_macro = False
+        for child in p.children:
+            if isinstance(child, NavigableString):
+                if str(child).strip():
+                    return False
+            elif isinstance(child, Tag):
+                if child.name == 'br':
+                    continue
+                name = child.name or ''
+                if not name.startswith('ac:') or name == 'ac:link':
+                    return False
+                has_macro = True
+        return has_macro
 
     def _extract_ac_link_text(self, tag: Tag) -> str:
         body = tag.find('ac:plain-text-link-body')

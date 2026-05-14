@@ -151,12 +151,56 @@ def test_table_cell_with_ac_link_with_body_uses_alt_text():
     assert "Samsung" not in out
 
 
-def test_table_cell_with_ac_macro_flattens_to_text():
+def test_table_cell_with_ac_macro_emitted_as_escaped_source_xml():
     xml = '<table><tbody><tr><td><ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro></td></tr></tbody></table>'
     out = convert(xml)
-    assert "ac:structured-macro" not in out
-    assert "ac:rich-text-body" not in out
-    assert "note" in out
+    assert "&lt;ac:structured-macro" in out
+    assert 'ac:name="info"' in out
+    assert "&lt;/ac:structured-macro&gt;" in out
+    assert "<ac:structured-macro" not in out
+
+
+def test_table_cell_with_ac_image_emitted_as_escaped_source_xml():
+    xml = (
+        '<table><tbody><tr><th rowspan="3">'
+        '<div class="content-wrapper">'
+        '<p><ac:image ac:style="max-height: 250.0px;" ac:thumbnail="true" ac:height="250">'
+        '<ri:attachment ri:filename="Screenshot 2026-04-30 at 2.00.51 PM.png" />'
+        '</ac:image></p></div></th></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert '<th rowspan="3">' in out
+    assert "content-wrapper" not in out
+    assert "<div" not in out
+    assert "<p>" not in out
+    assert "&lt;ac:image" in out
+    assert 'ac:height="250"' in out
+    assert "&lt;ri:attachment" in out
+    assert 'ri:filename="Screenshot 2026-04-30 at 2.00.51 PM.png"' in out
+    assert "&lt;/ac:image&gt;" in out
+
+
+def test_table_cell_strips_div_content_wrapper():
+    xml = '<table><tbody><tr><td><div class="content-wrapper"><span>x</span></div></td></tr></tbody></table>'
+    out = convert(xml)
+    assert "content-wrapper" not in out
+    assert "<div" not in out
+    assert "<td><span>x</span></td>" in out
+
+
+def test_table_cell_strips_p_around_ac_macro():
+    xml = '<table><tbody><tr><td><p><ac:image><ri:attachment ri:filename="x.png" /></ac:image></p></td></tr></tbody></table>'
+    out = convert(xml)
+    assert "<p>" not in out
+    assert "&lt;ac:image" in out
+
+
+def test_table_cell_keeps_p_with_mixed_text_and_ac_macro():
+    xml = '<table><tbody><tr><td><p>before <ac:image><ri:attachment ri:filename="x.png" /></ac:image> after</p></td></tr></tbody></table>'
+    out = convert(xml)
+    assert "<p>before " in out
+    assert " after</p>" in out
+    assert "&lt;ac:image" in out
 
 
 def test_table_cell_with_multiple_paragraphs_stays_inline():
