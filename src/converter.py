@@ -298,6 +298,7 @@ class Converter:
                 f"unsupported ac:image (no ri:filename) on page '{self.page_name}'"
             )
             return None
+        filename = re.sub(r'\s', ' ', filename)
         parts = [f'src="{filename}"']
         width = tag.attrs.get('ac:width')
         if width:

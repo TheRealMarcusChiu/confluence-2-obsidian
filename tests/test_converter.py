@@ -239,6 +239,14 @@ def test_table_cell_with_ac_image_transforms_to_img_tag():
     assert "ac:style" not in out
 
 
+def test_table_cell_ac_image_normalizes_unicode_whitespace_in_filename():
+    xml = '<table><tbody><tr><td><ac:image><ri:attachment ri:filename="a\u00a0b\u202fc.png" /></ac:image></td></tr></tbody></table>'
+    out = convert(xml)
+    assert '<img src="a b c.png" />' in out
+    assert '\u00a0' not in out
+    assert '\u202f' not in out
+
+
 def test_table_cell_ac_image_minimal():
     xml = '<table><tbody><tr><td><ac:image><ri:attachment ri:filename="x.png" /></ac:image></td></tr></tbody></table>'
     out = convert(xml)
