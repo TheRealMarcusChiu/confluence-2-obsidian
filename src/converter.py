@@ -174,7 +174,7 @@ class Converter:
         quoted = '\n'.join(f"> {line}" for line in inner.split('\n'))
         return '\n' + quoted
 
-    TABLE_KEEP_ATTRS = frozenset({'colspan', 'rowspan'})
+    TABLE_KEEP_ATTRS = frozenset({'colspan', 'rowspan', 'style'})
 
     def _render_table(self, tag: Tag) -> str:
         return '\n' + self._serialize_table_node(tag, depth=0)
@@ -214,7 +214,9 @@ class Converter:
         if tag.name in ('td', 'th'):
             colour = tag.attrs.get('data-highlight-colour')
             if colour:
-                keep['style'] = f'background-color: {colour};'
+                bg = f'background-color: {colour};'
+                existing = keep.get('style', '').rstrip().rstrip(';').rstrip()
+                keep['style'] = f'{existing}; {bg}' if existing else bg
         return keep
 
     def _format_html_attrs(self, attrs: dict) -> str:

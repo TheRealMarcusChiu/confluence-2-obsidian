@@ -144,6 +144,26 @@ def test_table_data_highlight_colour_becomes_style():
     assert 'style="background-color: grey;"' in out
 
 
+def test_table_style_attribute_kept_verbatim():
+    xml = '<table style="width: 100%;"><tbody><tr><td style="text-align: center;">x</td></tr></tbody></table>'
+    out = convert(xml)
+    assert 'style="width: 100%;"' in out
+    assert 'style="text-align: center;"' in out
+
+
+def test_table_cell_style_and_highlight_colour_merge():
+    xml = '<table><tbody><tr><td style="text-align: center;" data-highlight-colour="grey">x</td></tr></tbody></table>'
+    out = convert(xml)
+    assert 'data-highlight-colour' not in out
+    assert 'style="text-align: center; background-color: grey;"' in out
+
+
+def test_table_cell_style_without_trailing_semicolon_merges_cleanly():
+    xml = '<table><tbody><tr><td style="text-align: center" data-highlight-colour="grey">x</td></tr></tbody></table>'
+    out = convert(xml)
+    assert 'style="text-align: center; background-color: grey;"' in out
+
+
 def test_table_cell_with_ac_link_no_body_uses_page_title():
     xml = '<table><tbody><tr><td><p><ac:link><ri:page ri:space-key="NOT" ri:content-title="Samsung" /></ac:link></p></td></tr></tbody></table>'
     out = convert(xml)
