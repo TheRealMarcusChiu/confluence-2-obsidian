@@ -203,6 +203,61 @@ def test_table_cell_strips_p_around_ac_macro():
     assert "&lt;ac:image" in out
 
 
+def test_table_nested_table_recursively_prettified():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<table><tbody><tr><td>x</td></tr></tbody></table>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    expected = (
+        "<table>\n"
+        "    <tbody>\n"
+        "        <tr>\n"
+        "            <td>\n"
+        "                <table>\n"
+        "                    <tbody>\n"
+        "                        <tr>\n"
+        "                            <td>x</td>\n"
+        "                        </tr>\n"
+        "                    </tbody>\n"
+        "                </table>\n"
+        "            </td>\n"
+        "        </tr>\n"
+        "    </tbody>\n"
+        "</table>"
+    )
+    assert out == expected
+
+
+def test_table_nested_table_applies_full_clean_rules():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<table class="x"><colgroup><col/></colgroup><tbody><tr>'
+        '<td data-highlight-colour="grey" class="y">inner</td>'
+        '</tr></tbody></table>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert 'class="x"' not in out
+    assert 'class="y"' not in out
+    assert 'colgroup' not in out
+    assert 'data-highlight-colour' not in out
+    assert 'style="background-color: grey;"' in out
+
+
+def test_table_nested_table_with_surrounding_text_keeps_text_packed():
+    xml = (
+        '<table><tbody><tr><td>before'
+        '<table><tbody><tr><td>x</td></tr></tbody></table>'
+        'after</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert "<td>before\n" in out
+    assert "after</td>" in out
+    assert "                <table>" in out
+
+
 def test_table_cell_keeps_p_with_mixed_text_and_ac_macro():
     xml = '<table><tbody><tr><td><p>before <ac:image><ri:attachment ri:filename="x.png" /></ac:image> after</p></td></tr></tbody></table>'
     out = convert(xml)

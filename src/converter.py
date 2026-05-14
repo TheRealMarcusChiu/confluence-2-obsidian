@@ -185,7 +185,7 @@ class Converter:
         attr_str = self._format_html_attrs(attrs)
 
         if tag.name in ('td', 'th'):
-            inner = self._render_cell_inner(tag)
+            inner = self._render_cell_inner(tag, depth)
             return f'{indent}<{tag.name}{attr_str}>{inner}</{tag.name}>'
 
         child_lines = []
@@ -222,35 +222,36 @@ class Converter:
             return ''
         return ' ' + ' '.join(f'{k}="{v}"' for k, v in attrs.items())
 
-    def _render_cell_inner(self, cell: Tag) -> str:
+    def _render_cell_inner(self, cell: Tag, depth: int) -> str:
+        return self._serialize_cell_children(cell, depth)
+
+    def _serialize_cell_children(self, parent: Tag, depth: int) -> str:
+        cell_indent = '    ' * depth
         parts = []
-        for child in cell.children:
+        for child in parent.children:
             if isinstance(child, NavigableString):
                 parts.append(str(child))
             elif isinstance(child, Tag):
-                parts.append(self._render_cell_node(child))
+                if child.name == 'table':
+                    parts.append('\n' + self._serialize_table_node(child, depth + 1) + '\n' + cell_indent)
+                else:
+                    parts.append(self._render_cell_node(child, depth))
         return ''.join(parts)
 
-    def _render_cell_node(self, tag: Tag) -> str:
+    def _render_cell_node(self, tag: Tag, depth: int) -> str:
         if tag.name == 'ac:link':
             return self._extract_ac_link_text(tag)
         if tag.name and tag.name.startswith('ac:'):
             return str(tag).replace('<', '&lt;').replace('>', '&gt;')
         if self._cell_wrapper_should_strip(tag):
-            return ''.join(
-                str(c) if isinstance(c, NavigableString) else self._render_cell_node(c)
-                for c in tag.children
-            )
+            return self._serialize_cell_children(tag, depth)
         attr_str = self._format_html_attrs(self._table_filtered_attrs(tag))
         children = list(tag.children)
         if not children:
             if tag.name in ('br', 'img', 'hr'):
                 return f'<{tag.name}{attr_str}/>'
             return f'<{tag.name}{attr_str}></{tag.name}>'
-        inner = ''.join(
-            str(c) if isinstance(c, NavigableString) else self._render_cell_node(c)
-            for c in children
-        )
+        inner = self._serialize_cell_children(tag, depth)
         return f'<{tag.name}{attr_str}>{inner}</{tag.name}>'
 
     def _cell_wrapper_should_strip(self, tag: Tag) -> bool:
