@@ -174,24 +174,88 @@ class Converter:
         quoted = '\n'.join(f"> {line}" for line in inner.split('\n'))
         return '\n' + quoted
 
+    TABLE_KEEP_ATTRS = frozenset({'colspan', 'rowspan'})
+
     def _render_table(self, tag: Tag) -> str:
-        for cell in tag.find_all(['td', 'th']):
-            if cell.attrs.get('colspan') or cell.attrs.get('rowspan'):
-                return '\n' + str(tag)
-        rows = tag.find_all('tr')
-        if not rows:
+        return '\n' + self._serialize_table_node(tag, depth=0)
+
+    def _serialize_table_node(self, tag: Tag, depth: int) -> str:
+        indent = '    ' * depth
+        attrs = self._table_filtered_attrs(tag)
+        attr_str = self._format_html_attrs(attrs)
+
+        if tag.name in ('td', 'th'):
+            inner = self._render_cell_inner(tag)
+            return f'{indent}<{tag.name}{attr_str}>{inner}</{tag.name}>'
+
+        child_lines = []
+        for child in tag.children:
+            if isinstance(child, NavigableString):
+                text = str(child).strip()
+                if text:
+                    child_lines.append('    ' * (depth + 1) + text)
+                continue
+            if not isinstance(child, Tag):
+                continue
+            if child.name == 'colgroup':
+                continue
+            child_lines.append(self._serialize_table_node(child, depth + 1))
+
+        if not child_lines:
+            return f'{indent}<{tag.name}{attr_str}></{tag.name}>'
+        return (
+            f'{indent}<{tag.name}{attr_str}>\n'
+            + '\n'.join(child_lines)
+            + f'\n{indent}</{tag.name}>'
+        )
+
+    def _table_filtered_attrs(self, tag: Tag) -> dict:
+        keep = {k: v for k, v in tag.attrs.items() if k in self.TABLE_KEEP_ATTRS}
+        if tag.name in ('td', 'th'):
+            colour = tag.attrs.get('data-highlight-colour')
+            if colour:
+                keep['style'] = f'background-color: {colour};'
+        return keep
+
+    def _format_html_attrs(self, attrs: dict) -> str:
+        if not attrs:
             return ''
-        lines = []
-        for i, row in enumerate(rows):
-            cells = row.find_all(['td', 'th'])
-            texts = []
-            for c in cells:
-                t = self._inline(c).replace('\n', ' ').replace('|', '\\|')
-                texts.append(t.strip())
-            lines.append('| ' + ' | '.join(texts) + ' |')
-            if i == 0:
-                lines.append('| ' + ' | '.join('---' for _ in cells) + ' |')
-        return '\n' + '\n'.join(lines)
+        return ' ' + ' '.join(f'{k}="{v}"' for k, v in attrs.items())
+
+    def _render_cell_inner(self, cell: Tag) -> str:
+        parts = []
+        for child in cell.children:
+            if isinstance(child, NavigableString):
+                parts.append(str(child))
+            elif isinstance(child, Tag):
+                parts.append(self._render_cell_node(child))
+        return ''.join(parts)
+
+    def _render_cell_node(self, tag: Tag) -> str:
+        if tag.name == 'ac:link':
+            return self._extract_ac_link_text(tag)
+        if tag.name and tag.name.startswith('ac:'):
+            return tag.get_text()
+        attr_str = self._format_html_attrs(self._table_filtered_attrs(tag))
+        children = list(tag.children)
+        if not children:
+            if tag.name in ('br', 'img', 'hr'):
+                return f'<{tag.name}{attr_str}/>'
+            return f'<{tag.name}{attr_str}></{tag.name}>'
+        inner = ''.join(
+            str(c) if isinstance(c, NavigableString) else self._render_cell_node(c)
+            for c in children
+        )
+        return f'<{tag.name}{attr_str}>{inner}</{tag.name}>'
+
+    def _extract_ac_link_text(self, tag: Tag) -> str:
+        body = tag.find('ac:plain-text-link-body')
+        if body is not None:
+            return body.get_text()
+        ri = tag.find('ri:page')
+        if ri is not None:
+            return ri.attrs.get('ri:content-title', '')
+        return tag.get_text()
 
     DROPPED_SILENTLY = frozenset({
         'anchor', 'toc',

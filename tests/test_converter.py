@@ -91,19 +91,84 @@ def test_external_link():
     assert "[site](https://example.com)" in out
 
 
-def test_simple_table_pipe():
+def test_table_emits_prettified_raw_html():
     xml = "<table><tbody><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></tbody></table>"
     out = convert(xml)
-    assert "| A | B |" in out
-    assert "| --- | --- |" in out
-    assert "| 1 | 2 |" in out
+    expected = (
+        "<table>\n"
+        "    <tbody>\n"
+        "        <tr>\n"
+        "            <th>A</th>\n"
+        "            <th>B</th>\n"
+        "        </tr>\n"
+        "        <tr>\n"
+        "            <td>1</td>\n"
+        "            <td>2</td>\n"
+        "        </tr>\n"
+        "    </tbody>\n"
+        "</table>"
+    )
+    assert out == expected
 
 
-def test_merged_cell_table_kept_as_html():
-    xml = '<table><tbody><tr><td colspan="2">spanned</td></tr><tr><td>a</td><td>b</td></tr></tbody></table>'
+def test_table_strips_colgroup():
+    xml = "<table><colgroup><col/><col/></colgroup><tbody><tr><td>x</td></tr></tbody></table>"
     out = convert(xml)
-    assert "<table>" in out
+    assert "colgroup" not in out
+    assert "<col" not in out
+
+
+def test_table_strips_unknown_attributes_keeps_colspan_rowspan():
+    xml = '<table class="confluenceTable" data-x="1"><tbody><tr><td colspan="2" rowspan="3" class="cell">x</td></tr></tbody></table>'
+    out = convert(xml)
+    assert 'class="confluenceTable"' not in out
+    assert 'data-x' not in out
+    assert 'class="cell"' not in out
+    assert '<table>' in out
     assert 'colspan="2"' in out
+    assert 'rowspan="3"' in out
+
+
+def test_table_data_highlight_colour_becomes_style():
+    xml = '<table><tbody><tr><td data-highlight-colour="grey">x</td></tr></tbody></table>'
+    out = convert(xml)
+    assert 'data-highlight-colour' not in out
+    assert 'style="background-color: grey;"' in out
+
+
+def test_table_cell_with_ac_link_no_body_uses_page_title():
+    xml = '<table><tbody><tr><td><p><ac:link><ri:page ri:space-key="NOT" ri:content-title="Samsung" /></ac:link></p></td></tr></tbody></table>'
+    out = convert(xml)
+    assert "<p>Samsung</p>" in out
+    assert "ac:link" not in out
+    assert "ri:page" not in out
+
+
+def test_table_cell_with_ac_link_with_body_uses_alt_text():
+    xml = '<table><tbody><tr><td><p><ac:link><ri:page ri:space-key="NOT" ri:content-title="Samsung" /><ac:plain-text-link-body><![CDATA[ALT_TEXT]]></ac:plain-text-link-body></ac:link></p></td></tr></tbody></table>'
+    out = convert(xml)
+    assert "<p>ALT_TEXT</p>" in out
+    assert "Samsung" not in out
+
+
+def test_table_cell_with_ac_macro_flattens_to_text():
+    xml = '<table><tbody><tr><td><ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro></td></tr></tbody></table>'
+    out = convert(xml)
+    assert "ac:structured-macro" not in out
+    assert "ac:rich-text-body" not in out
+    assert "note" in out
+
+
+def test_table_cell_with_multiple_paragraphs_stays_inline():
+    xml = '<table><tbody><tr><td><p>a</p><p>b</p></td></tr></tbody></table>'
+    out = convert(xml)
+    assert "<td><p>a</p><p>b</p></td>" in out
+
+
+def test_table_cell_preserves_raw_text_newlines():
+    xml = '<table><tbody><tr><td>line1\nline2</td></tr></tbody></table>'
+    out = convert(xml)
+    assert "<td>line1\nline2</td>" in out
 
 
 def test_macro_code_with_language():
