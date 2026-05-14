@@ -337,7 +337,7 @@ def test_blockquote():
 def test_link_target_sanitized_when_title_has_invalid_chars():
     xml = '<ac:link><ri:page ri:content-title="Design: v2" /></ac:link>'
     out = convert(xml)
-    assert out == "[[Design  v2|Design: v2]]"
+    assert out == "[[Design： v2|Design: v2]]"
 
 
 def test_link_target_uses_title_map_for_collision():
@@ -350,7 +350,7 @@ def test_link_target_uses_title_map_for_collision():
 def test_excerpt_include_uses_resolved_target():
     xml = '<ac:structured-macro ac:name="excerpt-include"><ac:parameter ac:name=""><ac:link><ri:page ri:content-title="Design: v2" /></ac:link></ac:parameter></ac:structured-macro>'
     out = convert(xml)
-    assert out == "![[Design  v2#^excerpt]]"
+    assert out == "![[Design： v2#^excerpt]]"
 
 
 def test_macro_info_callout():
