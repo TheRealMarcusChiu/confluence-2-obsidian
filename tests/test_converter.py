@@ -39,7 +39,15 @@ def test_nested_list():
     xml = "<ul><li>parent<ul><li>child</li></ul></li></ul>"
     out = convert(xml)
     assert "- parent" in out
-    assert "  - child" in out
+    assert "\t- child" in out
+
+
+def test_doubly_nested_list_uses_two_tabs():
+    xml = "<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li></ul>"
+    out = convert(xml)
+    assert "- a" in out
+    assert "\t- b" in out
+    assert "\t\t- c" in out
 
 
 def test_br_becomes_backslash_break():

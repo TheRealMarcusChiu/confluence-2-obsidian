@@ -151,7 +151,7 @@ class Converter:
     def _render_list_inner(self, tag: Tag, ordered: bool, depth: int) -> str:
         items = [c for c in tag.children if isinstance(c, Tag) and c.name == 'li']
         lines = []
-        indent = '  ' * depth
+        indent = '\t' * depth
         for i, item in enumerate(items):
             marker = f"{i+1}." if ordered else "-"
             inline_parts = []
