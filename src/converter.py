@@ -236,17 +236,33 @@ class Converter:
         return self._serialize_cell_children(cell, depth)
 
     def _serialize_cell_children(self, parent: Tag, depth: int) -> str:
-        cell_indent = '    ' * depth
         parts = []
         for child in parent.children:
             if isinstance(child, NavigableString):
                 parts.append(str(child))
             elif isinstance(child, Tag):
+                if self._is_empty_p_with_only_br(child):
+                    continue
                 if child.name == 'table':
-                    parts.append('\n' + self._serialize_table_node(child, depth + 1) + '\n' + cell_indent)
+                    parts.append(self._serialize_table_node(child, depth + 1).lstrip())
                 else:
                     parts.append(self._render_cell_node(child, depth))
         return ''.join(parts)
+
+    def _is_empty_p_with_only_br(self, tag: Tag) -> bool:
+        if tag.name != 'p':
+            return False
+        has_br = False
+        for child in tag.children:
+            if isinstance(child, NavigableString):
+                if str(child).strip():
+                    return False
+            elif isinstance(child, Tag):
+                if child.name == 'br':
+                    has_br = True
+                else:
+                    return False
+        return has_br
 
     def _render_cell_node(self, tag: Tag, depth: int) -> str:
         if tag.name == 'ac:link':
@@ -255,6 +271,10 @@ class Converter:
             img = self._render_ac_image_in_cell(tag)
             if img is not None:
                 return img
+        if tag.name == 'ac:structured-macro':
+            collapsed = self._render_cell_expand(tag, depth)
+            if collapsed is not None:
+                return collapsed
         if tag.name and tag.name.startswith('ac:'):
             return str(tag).replace('<', '&lt;').replace('>', '&gt;')
         if self._cell_wrapper_should_strip(tag):
@@ -289,6 +309,21 @@ class Converter:
                     return False
                 has_macro = True
         return has_macro
+
+    def _render_cell_expand(self, tag: Tag, depth: int) -> str | None:
+        macro_name = tag.attrs.get('ac:name', '')
+        if macro_name not in ('expand', 'ui-expand'):
+            return None
+        title = self._direct_parameter_text(tag, 'title')
+        if not title:
+            if macro_name == 'expand':
+                title = 'Click here to expand...'
+            else:
+                return None
+        safe_title = _escape_html(title)
+        body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
+        body = self._serialize_cell_children(body_tag, depth) if body_tag is not None else ''
+        return f'<details><summary>{safe_title}</summary>{body}</details>'
 
     def _render_ac_image_in_cell(self, tag: Tag) -> str | None:
         ri = tag.find('ri:attachment')
@@ -343,7 +378,7 @@ class Converter:
             return self._render_callout(tag, 'info')
         if name == 'warning':
             return self._render_callout(tag, 'warning')
-        if name in ('expand', 'ui-expand', 'ui-tab'):
+        if name in ('expand', 'ui-expand'):
             return self._render_collapsible(tag)
         if name == 'ui-tabs':
             return self._render_ui_tabs(tag)
@@ -418,18 +453,41 @@ class Converter:
         return param.get_text().strip() if param is not None else ''
 
     def _render_collapsible(self, tag: Tag) -> str:
+        macro_name = tag.attrs.get('ac:name', '')
         title = self._direct_parameter_text(tag, 'title')
         body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
         body = self._render_children(body_tag).strip() if body_tag is not None else ''
         if not title:
-            return f"\n{body}" if body else ''
+            if macro_name == 'expand':
+                title = 'Click here to expand...'
+            else:
+                return f"\n{body}" if body else ''
         safe_title = _escape_html(title)
-        return f"\n<details>\n<summary>{safe_title}</summary>\n\n{body}\n\n</details>"
+        if body:
+            return f"\n<details>\n<summary>{safe_title}</summary>\n{body}\n</details>"
+        return f"\n<details>\n<summary>{safe_title}</summary>\n</details>"
 
     def _render_ui_tabs(self, tag: Tag) -> str:
         body_tag = tag.find('ac:rich-text-body')
-        target = body_tag if body_tag is not None else tag
-        return '\n' + self._render_children(target).strip()
+        if body_tag is None:
+            return ''
+        tab_blocks = []
+        for child in body_tag.children:
+            if (isinstance(child, Tag)
+                and child.name == 'ac:structured-macro'
+                and child.attrs.get('ac:name', '') == 'ui-tab'):
+                tab_blocks.append(self._render_one_ui_tab(child))
+        if not tab_blocks:
+            return ''
+        return '\n~~~tabs\n' + '\n'.join(tab_blocks) + '\n~~~'
+
+    def _render_one_ui_tab(self, tag: Tag) -> str:
+        title = self._direct_parameter_text(tag, 'title')
+        body_tag = tag.find('ac:rich-text-body')
+        body = self._render_children(body_tag).strip() if body_tag is not None else ''
+        if body:
+            return f"---tab {title}\n{body}"
+        return f"---tab {title}"
 
     def _render_widget(self, tag: Tag) -> str:
         param = self._direct_parameter(tag, 'url')

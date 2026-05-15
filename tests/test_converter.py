@@ -220,6 +220,55 @@ def test_table_cell_with_ac_macro_emitted_as_escaped_source_xml():
     assert "<ac:structured-macro" not in out
 
 
+def test_table_cell_expand_with_title_renders_inline_details():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">ALT TEXT</ac:parameter>'
+        '<ac:rich-text-body><p>CONTENT</p></ac:rich-text-body></ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert "<details><summary>ALT TEXT</summary><p>CONTENT</p></details>" in out
+    assert "&lt;ac:structured-macro" not in out
+
+
+def test_table_cell_ui_expand_renders_inline_details():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="ui-expand"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert "<details><summary>T</summary><p>body</p></details>" in out
+
+
+def test_table_cell_expand_without_title_uses_default_summary():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="expand">'
+        '<ac:rich-text-body><p>x</p></ac:rich-text-body></ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert "<details><summary>Click here to expand...</summary><p>x</p></details>" in out
+
+
+def test_table_cell_expand_body_keeps_cell_rules_for_nested_ac_macros():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<ac:structured-macro ac:name="info"><ac:rich-text-body><p>n</p></ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert "<details><summary>T</summary>" in out
+    assert "&lt;ac:structured-macro" in out
+    assert 'ac:name="info"' in out
+
+
 def test_table_cell_with_ac_image_transforms_to_img_tag():
     xml = (
         '<table><tbody><tr><th rowspan="3">'
@@ -302,15 +351,13 @@ def test_table_nested_table_recursively_prettified():
         "<table>\n"
         "    <tbody>\n"
         "        <tr>\n"
-        "            <td>\n"
-        "                <table>\n"
+        "            <td><table>\n"
         "                    <tbody>\n"
         "                        <tr>\n"
         "                            <td>x</td>\n"
         "                        </tr>\n"
         "                    </tbody>\n"
-        "                </table>\n"
-        "            </td>\n"
+        "                </table></td>\n"
         "        </tr>\n"
         "    </tbody>\n"
         "</table>"
@@ -334,16 +381,62 @@ def test_table_nested_table_applies_full_clean_rules():
     assert 'style="background-color: #F4F5F7;"' in out
 
 
-def test_table_nested_table_with_surrounding_text_keeps_text_packed():
+def test_table_nested_table_with_surrounding_text_stays_inline():
     xml = (
         '<table><tbody><tr><td>before'
         '<table><tbody><tr><td>x</td></tr></tbody></table>'
         'after</td></tr></tbody></table>'
     )
     out = convert(xml)
-    assert "<td>before\n" in out
-    assert "after</td>" in out
-    assert "                <table>" in out
+    assert "<td>before<table>" in out
+    assert "</table>after</td>" in out
+
+
+def test_table_cell_drops_p_with_only_br():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<p>real</p>'
+        '<p><br/></p>'
+        '<p>more</p>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert "<td><p>real</p><p>more</p></td>" in out
+    assert "<br" not in out
+
+
+def test_table_cell_drops_auto_cursor_target_paragraph_regardless_of_attrs():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<p>a</p>'
+        '<p class="auto-cursor-target"><br /></p>'
+        '<p>b</p>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert "<td><p>a</p><p>b</p></td>" in out
+    assert "auto-cursor-target" not in out
+    assert "<br" not in out
+
+
+def test_table_cell_drops_p_with_multiple_brs():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<p>a</p><p><br/><br/></p><p>b</p>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert "<td><p>a</p><p>b</p></td>" in out
+
+
+def test_table_cell_keeps_p_with_text_and_br():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<p>hello<br/></p>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert "<p>hello<br/></p>" in out
 
 
 def test_table_cell_keeps_p_with_mixed_text_and_ac_macro():
@@ -514,17 +607,20 @@ def test_macro_warning_callout():
 def test_macro_expand_with_title():
     xml = '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">TITLE HERE</ac:parameter><ac:rich-text-body><p>content here</p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert "<details>" in out
-    assert "<summary>TITLE HERE</summary>" in out
-    assert "content here" in out
-    assert "</details>" in out
+    assert "<details>\n<summary>TITLE HERE</summary>\ncontent here\n</details>" in out
 
 
-def test_macro_expand_without_title_inlines_body():
+def test_macro_expand_has_no_blank_lines_inside_details():
+    xml = '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter><ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
+    out = convert(xml)
+    assert "<summary>T</summary>\n\n" not in out
+    assert "\n\n</details>" not in out
+
+
+def test_macro_expand_without_title_uses_default_summary():
     xml = '<ac:structured-macro ac:name="expand"><ac:rich-text-body><p>content here</p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert "<details>" not in out
-    assert "content here" in out
+    assert "<details>\n<summary>Click here to expand...</summary>\ncontent here\n</details>" in out
 
 
 def test_macro_ui_expand_with_title():
@@ -574,7 +670,7 @@ def test_macro_multimedia_emits_attachment_embed():
     assert out == "![[MyPage/clip.mp4]]"
 
 
-def test_macro_ui_tabs_and_ui_tab_stacked_details():
+def test_macro_ui_tabs_emits_fenced_tabs_block():
     xml = (
         '<ac:structured-macro ac:name="ui-tabs"><ac:rich-text-body>'
         '<p class="auto-cursor-target"><br /></p>'
@@ -584,14 +680,87 @@ def test_macro_ui_tabs_and_ui_tab_stacked_details():
         '<ac:structured-macro ac:name="ui-tab"><ac:parameter ac:name="title">Tab 2</ac:parameter>'
         '<ac:rich-text-body><p>Tab 2 content here</p></ac:rich-text-body></ac:structured-macro>'
         '<p class="auto-cursor-target"><br /></p>'
+        '<ac:structured-macro ac:name="ui-tab"><ac:parameter ac:name="title">Tab 3</ac:parameter>'
+        '<ac:rich-text-body><p>Tab 3 content here</p></ac:rich-text-body></ac:structured-macro>'
+        '<p class="auto-cursor-target"><br /></p>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml).strip()
+    expected = (
+        "~~~tabs\n"
+        "---tab Tab 1\n"
+        "Tab 1 content here\n"
+        "---tab Tab 2\n"
+        "Tab 2 content here\n"
+        "---tab Tab 3\n"
+        "Tab 3 content here\n"
+        "~~~"
+    )
+    assert out == expected
+    assert "<details>" not in out
+
+
+def test_macro_ui_tabs_single_tab():
+    xml = (
+        '<ac:structured-macro ac:name="ui-tabs"><ac:rich-text-body>'
+        '<ac:structured-macro ac:name="ui-tab"><ac:parameter ac:name="title">Only</ac:parameter>'
+        '<ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml).strip()
+    assert out == "~~~tabs\n---tab Only\nbody\n~~~"
+
+
+def test_macro_ui_tabs_tab_body_renders_full_markdown():
+    xml = (
+        '<ac:structured-macro ac:name="ui-tabs"><ac:rich-text-body>'
+        '<ac:structured-macro ac:name="ui-tab"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<ul><li>one</li><li>two</li></ul>'
+        '<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">python</ac:parameter>'
+        '<ac:plain-text-body><![CDATA[print(1)]]></ac:plain-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
         '</ac:rich-text-body></ac:structured-macro>'
     )
     out = convert(xml)
-    assert out.count("<details>") == 2
-    assert "<summary>Tab 1</summary>" in out
-    assert "<summary>Tab 2</summary>" in out
-    assert "Tab 1 content here" in out
-    assert "Tab 2 content here" in out
+    assert "---tab T" in out
+    assert "- one" in out
+    assert "- two" in out
+    assert "```python" in out
+    assert "print(1)" in out
+
+
+def test_macro_ui_tabs_drops_non_tab_content_silently():
+    xml = (
+        '<ac:structured-macro ac:name="ui-tabs"><ac:rich-text-body>'
+        '<p>stray paragraph that confluence never showed</p>'
+        '<ac:structured-macro ac:name="ui-tab"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body><p>real tab body</p></ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "stray paragraph" not in out
+    assert "real tab body" in out
+
+
+def test_macro_ui_tabs_with_no_tabs_drops_block():
+    xml = (
+        '<ac:structured-macro ac:name="ui-tabs"><ac:rich-text-body>'
+        '<p class="auto-cursor-target"><br /></p>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml).strip()
+    assert out == ""
+
+
+def test_orphan_ui_tab_logged_as_unknown_macro():
+    from src.converter import Converter
+    c = Converter("p")
+    c.convert(
+        '<ac:structured-macro ac:name="ui-tab"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
+    )
+    assert "ui-tab" in c.unknown_macros
 
 
 def test_macro_widget_youtube_embed():
