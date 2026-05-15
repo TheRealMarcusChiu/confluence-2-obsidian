@@ -155,14 +155,26 @@ class Converter:
         for i, item in enumerate(items):
             marker = f"{i+1}." if ordered else "-"
             inline_parts = []
+            block_parts = []
             nested = []
             for child in item.children:
                 if isinstance(child, Tag) and child.name in ('ul', 'ol'):
                     nested.append((child.name == 'ol', child))
+                    continue
+                rendered = self._render(child)
+                stripped = rendered.strip()
+                if stripped and '\n' in stripped:
+                    block_parts.append(stripped)
                 else:
-                    inline_parts.append(self._render(child))
+                    inline_parts.append(rendered)
             body = ''.join(inline_parts).strip().replace('\n', ' ')
-            lines.append(f"{indent}{marker} {body}".rstrip())
+            item_line = f"{indent}{marker} {body}".rstrip()
+            if block_parts:
+                self.warnings.append(
+                    f"list item with block content (hoisted to column 0) on page '{self.page_name}'"
+                )
+                item_line += '\n' + '\n\n'.join(block_parts)
+            lines.append(item_line)
             for sub_ordered, sub in nested:
                 lines.append(self._render_list_inner(sub, sub_ordered, depth + 1))
         return '\n'.join(lines)

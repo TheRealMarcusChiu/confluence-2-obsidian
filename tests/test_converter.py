@@ -50,6 +50,99 @@ def test_doubly_nested_list_uses_two_tabs():
     assert "\t\t- c" in out
 
 
+def test_list_item_with_expand_hoists_callout_to_column_zero():
+    xml = (
+        '<ul style="list-style-type: square;"><li>'
+        '<p class="auto-cursor-target">outside text</p>'
+        '<ac:structured-macro ac:name="expand">'
+        '<ac:rich-text-body><p>inside text</p></ac:rich-text-body>'
+        '</ac:structured-macro>'
+        '<p class="auto-cursor-target"><br /></p>'
+        '</li></ul>'
+    )
+    out = convert(xml).strip()
+    expected = (
+        "- outside text\n"
+        "> [!expand]- Click here to expand...\n"
+        "> inside text"
+    )
+    assert out == expected
+
+
+def test_list_item_with_ui_expand_hoists_callout_to_column_zero():
+    xml = (
+        '<ul><li>outer'
+        '<ac:structured-macro ac:name="ui-expand"><ac:parameter ac:name="title">UI</ac:parameter>'
+        '<ac:rich-text-body><p>ui body</p></ac:rich-text-body></ac:structured-macro>'
+        '</li></ul>'
+    )
+    out = convert(xml).strip()
+    expected = (
+        "- outer\n"
+        "> [!expand-ui]- UI\n"
+        "> ui body"
+    )
+    assert out == expected
+
+
+def test_list_item_with_multiple_blocks_separated_by_blank_line():
+    xml = (
+        '<ul><li>text'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">A</ac:parameter>'
+        '<ac:rich-text-body><p>body A</p></ac:rich-text-body></ac:structured-macro>'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">B</ac:parameter>'
+        '<ac:rich-text-body><p>body B</p></ac:rich-text-body></ac:structured-macro>'
+        '</li></ul>'
+    )
+    out = convert(xml).strip()
+    expected = (
+        "- text\n"
+        "> [!expand]- A\n"
+        "> body A\n"
+        "\n"
+        "> [!expand]- B\n"
+        "> body B"
+    )
+    assert out == expected
+
+
+def test_list_item_with_only_expand_no_inline_text():
+    xml = (
+        '<ul><li>'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
+        '</li></ul>'
+    )
+    out = convert(xml).strip()
+    expected = (
+        "-\n"
+        "> [!expand]- T\n"
+        "> body"
+    )
+    assert out == expected
+
+
+def test_list_item_with_block_content_logs_warning():
+    from src.converter import Converter
+    xml = (
+        '<ul><li>text'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
+        '</li></ul>'
+    )
+    c = Converter('MyPage')
+    c.convert(xml)
+    assert any("MyPage" in w and "list item" in w.lower() for w in c.warnings)
+
+
+def test_list_item_inline_only_unchanged_no_warning():
+    from src.converter import Converter
+    c = Converter('MyPage')
+    out = c.convert("<ul><li>plain text</li><li>another</li></ul>").strip()
+    assert out == "- plain text\n- another"
+    assert not any("list item" in w.lower() for w in c.warnings)
+
+
 def test_br_becomes_backslash_break():
     out = convert("<p>line1<br/>line2</p>")
     assert "line1\\\nline2" in out
