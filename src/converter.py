@@ -177,7 +177,7 @@ class Converter:
     TABLE_KEEP_ATTRS = frozenset({'colspan', 'rowspan', 'style'})
 
     def _render_table(self, tag: Tag) -> str:
-        return '\n' + self._serialize_table_node(tag, depth=0)
+        return '\n' + self._serialize_table_node(tag, depth=0) + '\n'
 
     def _serialize_table_node(self, tag: Tag, depth: int) -> str:
         indent = '    ' * depth
@@ -437,6 +437,7 @@ class Converter:
             inner = self._render_children(body_tag).strip()
         if not inner:
             return ''
+        inner = re.sub(r'\n{3,}', '\n\n', inner)
         quoted = '\n'.join(f"> {line}" if line else ">" for line in inner.split('\n'))
         return f"\n> [!{callout_type}]\n{quoted}"
 
@@ -454,18 +455,16 @@ class Converter:
 
     def _render_collapsible(self, tag: Tag) -> str:
         macro_name = tag.attrs.get('ac:name', '')
-        title = self._direct_parameter_text(tag, 'title')
+        callout_type = 'expand-ui' if macro_name == 'ui-expand' else 'expand'
+        title = self._direct_parameter_text(tag, 'title') or 'Click here to expand...'
         body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
         body = self._render_children(body_tag).strip() if body_tag is not None else ''
-        if not title:
-            if macro_name == 'expand':
-                title = 'Click here to expand...'
-            else:
-                return f"\n{body}" if body else ''
-        safe_title = _escape_html(title)
-        if body:
-            return f"\n<details>\n<summary>{safe_title}</summary>\n{body}\n</details>"
-        return f"\n<details>\n<summary>{safe_title}</summary>\n</details>"
+        header = f"> [!{callout_type}]- {title}"
+        if not body:
+            return f"\n\n{header}"
+        body = re.sub(r'\n{3,}', '\n\n', body)
+        quoted = '\n'.join(f"> {line}" if line else ">" for line in body.split('\n'))
+        return f"\n\n{header}\n{quoted}"
 
     def _render_ui_tabs(self, tag: Tag) -> str:
         body_tag = tag.find('ac:rich-text-body')

@@ -604,36 +604,148 @@ def test_macro_warning_callout():
     assert "> careful" in out
 
 
-def test_macro_expand_with_title():
+def test_macro_expand_with_title_emits_callout():
     xml = '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">TITLE HERE</ac:parameter><ac:rich-text-body><p>content here</p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert "<details>\n<summary>TITLE HERE</summary>\ncontent here\n</details>" in out
+    assert "> [!expand]- TITLE HERE\n> content here" in out
+    assert "<details>" not in out
+    assert "~~~expand" not in out
 
 
-def test_macro_expand_has_no_blank_lines_inside_details():
-    xml = '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter><ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
-    out = convert(xml)
-    assert "<summary>T</summary>\n\n" not in out
-    assert "\n\n</details>" not in out
-
-
-def test_macro_expand_without_title_uses_default_summary():
+def test_macro_expand_without_title_uses_default_in_callout_header():
     xml = '<ac:structured-macro ac:name="expand"><ac:rich-text-body><p>content here</p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert "<details>\n<summary>Click here to expand...</summary>\ncontent here\n</details>" in out
+    assert "> [!expand]- Click here to expand...\n> content here" in out
 
 
-def test_macro_ui_expand_with_title():
+def test_macro_ui_expand_with_title_emits_expand_ui_callout():
     xml = '<ac:structured-macro ac:name="ui-expand"><ac:parameter ac:name="title">UI TITLE</ac:parameter><ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert "<summary>UI TITLE</summary>" in out
-    assert "body" in out
+    assert "> [!expand-ui]- UI TITLE\n> body" in out
+    assert "<details>" not in out
+    assert "~~~expand-ui" not in out
 
 
-def test_macro_expand_escapes_html_in_title():
+def test_macro_ui_expand_without_title_uses_default_in_callout_header():
+    xml = '<ac:structured-macro ac:name="ui-expand"><ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
+    out = convert(xml)
+    assert "> [!expand-ui]- Click here to expand...\n> body" in out
+
+
+def test_macro_expand_callout_title_not_html_escaped():
     xml = '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">a &lt; b</ac:parameter><ac:rich-text-body><p>x</p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert "<summary>a &lt; b</summary>" in out
+    assert "> [!expand]- a < b\n> x" in out
+    assert "&lt;" not in out
+
+
+def test_macro_expand_empty_body_still_emits_header():
+    xml = '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter><ac:rich-text-body></ac:rich-text-body></ac:structured-macro>'
+    out = convert(xml).strip()
+    assert out == "> [!expand]- T"
+
+
+def test_macro_ui_expand_empty_body_still_emits_header():
+    xml = '<ac:structured-macro ac:name="ui-expand"><ac:parameter ac:name="title">T</ac:parameter><ac:rich-text-body></ac:rich-text-body></ac:structured-macro>'
+    out = convert(xml).strip()
+    assert out == "> [!expand-ui]- T"
+
+
+def test_macro_expand_body_renders_full_markdown_inside_callout():
+    xml = (
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<ul><li>one</li><li>two</li></ul>'
+        '<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">python</ac:parameter>'
+        '<ac:plain-text-body><![CDATA[print(1)]]></ac:plain-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "> [!expand]- T" in out
+    assert "> - one" in out
+    assert "> - two" in out
+    assert "> ```python" in out
+    assert "> print(1)" in out
+    assert "<details>" not in out
+    assert "~~~expand" not in out
+
+
+def test_macro_expand_nested_inside_expand_quotes_deeper():
+    xml = (
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">OUTER</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<p>outer body</p>'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">INNER</ac:parameter>'
+        '<ac:rich-text-body><p>inner body</p></ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    expected = (
+        "> [!expand]- OUTER\n"
+        "> outer body\n"
+        ">\n"
+        "> > [!expand]- INNER\n"
+        "> > inner body"
+    )
+    assert expected in out
+
+
+def test_macro_ui_expand_nested_inside_ui_expand_quotes_deeper():
+    xml = (
+        '<ac:structured-macro ac:name="ui-expand"><ac:parameter ac:name="title">OUTER</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<p>outer body</p>'
+        '<ac:structured-macro ac:name="ui-expand"><ac:parameter ac:name="title">INNER</ac:parameter>'
+        '<ac:rich-text-body><p>inner body</p></ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    expected = (
+        "> [!expand-ui]- OUTER\n"
+        "> outer body\n"
+        ">\n"
+        "> > [!expand-ui]- INNER\n"
+        "> > inner body"
+    )
+    assert expected in out
+
+
+def test_macro_expand_nested_as_only_child_no_leading_blank_quoted_line():
+    xml = (
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">OUTER</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">INNER</ac:parameter>'
+        '<ac:rich-text-body><p>inner body</p></ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    expected = (
+        "> [!expand]- OUTER\n"
+        "> > [!expand]- INNER\n"
+        "> > inner body"
+    )
+    assert expected in out
+
+
+def test_macro_expand_triple_nested_quotes_three_deep():
+    xml = (
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">L1</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">L2</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">L3</ac:parameter>'
+        '<ac:rich-text-body><p>deep</p></ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    expected = (
+        "> [!expand]- L1\n"
+        "> > [!expand]- L2\n"
+        "> > > [!expand]- L3\n"
+        "> > > deep"
+    )
+    assert expected in out
 
 
 def test_macro_anchor_dropped_silently():
@@ -862,6 +974,116 @@ def test_spacing_pure_whitespace_text_between_blocks_ignored():
     xml = "<h1>A</h1>\n\n\n<h2>B</h2>"
     out = convert(xml)
     assert out == "# A\n## B"
+
+
+def test_spacing_blank_line_after_top_level_table_before_heading():
+    xml = "<table><tbody><tr><td>x</td></tr></tbody></table><h1>Next</h1>"
+    out = convert(xml)
+    assert "</table>\n\n# Next" in out
+
+
+def test_spacing_blank_line_after_top_level_table_before_list():
+    xml = "<table><tbody><tr><td>x</td></tr></tbody></table><ul><li>item</li></ul>"
+    out = convert(xml)
+    assert "</table>\n\n- item" in out
+
+
+def test_spacing_blank_line_between_two_top_level_tables():
+    xml = (
+        "<table><tbody><tr><td>1</td></tr></tbody></table>"
+        "<table><tbody><tr><td>2</td></tr></tbody></table>"
+    )
+    out = convert(xml)
+    assert "</table>\n\n<table>" in out
+
+
+def test_spacing_top_level_table_before_paragraph_one_blank_line_only():
+    xml = "<table><tbody><tr><td>x</td></tr></tbody></table><p>after</p>"
+    out = convert(xml)
+    assert "</table>\n\nafter" in out
+    assert "</table>\n\n\nafter" not in out
+
+
+def test_spacing_table_inside_info_callout_followed_by_heading_has_blank_quoted_line():
+    xml = (
+        '<ac:structured-macro ac:name="info"><ac:rich-text-body>'
+        '<table><tbody><tr><td>x</td></tr></tbody></table>'
+        '<h1>after</h1>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "> </table>\n>\n> # after" in out
+
+
+def test_spacing_table_inside_warning_callout_followed_by_heading_has_blank_quoted_line():
+    xml = (
+        '<ac:structured-macro ac:name="warning"><ac:rich-text-body>'
+        '<table><tbody><tr><td>x</td></tr></tbody></table>'
+        '<h1>after</h1>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "> </table>\n>\n> # after" in out
+
+
+def test_spacing_table_inside_info_callout_followed_by_paragraph_no_overquoting():
+    xml = (
+        '<ac:structured-macro ac:name="info"><ac:rich-text-body>'
+        '<table><tbody><tr><td>x</td></tr></tbody></table>'
+        '<p>after</p>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "> </table>\n>\n> after" in out
+    assert "> </table>\n>\n>\n>" not in out
+
+
+def test_spacing_table_inside_ui_tab_followed_by_heading_has_blank_line():
+    xml = (
+        '<ac:structured-macro ac:name="ui-tabs"><ac:rich-text-body>'
+        '<ac:structured-macro ac:name="ui-tab"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<table><tbody><tr><td>x</td></tr></tbody></table>'
+        '<h1>after</h1>'
+        '</ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "</table>\n\n# after" in out
+
+
+def test_spacing_table_inside_expand_body_followed_by_heading_has_blank_quoted_line():
+    xml = (
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<table><tbody><tr><td>x</td></tr></tbody></table>'
+        '<h1>after</h1>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "> </table>\n>\n> # after" in out
+
+
+def test_spacing_table_inside_ui_expand_body_followed_by_heading_has_blank_quoted_line():
+    xml = (
+        '<ac:structured-macro ac:name="ui-expand"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<table><tbody><tr><td>x</td></tr></tbody></table>'
+        '<h1>after</h1>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "> </table>\n>\n> # after" in out
+
+
+def test_spacing_nested_table_in_cell_stays_flush_no_trailing_blank_line():
+    xml = (
+        '<table><tbody><tr><td>before'
+        '<table><tbody><tr><td>x</td></tr></tbody></table>'
+        'after</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert "</table>after</td>" in out
 
 
 def test_attachments_referenced_tracked():
