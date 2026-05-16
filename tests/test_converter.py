@@ -372,10 +372,23 @@ def test_macro_latex_block_collapses_multiline_to_inline_math():
 
 
 def test_macro_latex_block_is_alias_of_latex_inline():
+    # Same math wrapping after strip — block adds a trailing \n that strip() removes.
     body = '<ac:plain-text-body><![CDATA[\\frac{a}{b} + c]]></ac:plain-text-body>'
     inline_xml = f'<ac:structured-macro ac:name="latex-inline">{body}</ac:structured-macro>'
     block_xml = f'<ac:structured-macro ac:name="latex-block">{body}</ac:structured-macro>'
     assert convert(inline_xml).strip() == convert(block_xml).strip()
+
+
+def test_macro_latex_block_separates_consecutive_blocks_with_newline():
+    xml = (
+        '<ac:structured-macro ac:name="latex-block">'
+        '<ac:plain-text-body><![CDATA[x]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+        '<ac:structured-macro ac:name="latex-block">'
+        '<ac:plain-text-body><![CDATA[y]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+    )
+    assert convert(xml) == "$x$\n$y$"
 
 
 def test_br_becomes_backslash_break():
