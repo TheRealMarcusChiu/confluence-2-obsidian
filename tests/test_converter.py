@@ -379,6 +379,39 @@ def test_macro_latex_block_is_alias_of_latex_inline():
     assert convert(inline_xml).strip() == convert(block_xml).strip()
 
 
+def test_macro_latex_inline_normalizes_nbsp_to_ascii_space():
+    xml = (
+        '<ac:structured-macro ac:name="latex-inline">'
+        '<ac:plain-text-body><![CDATA[\\sum x]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert out == "$\\sum x$"
+    assert " " not in out
+
+
+def test_macro_latex_inline_normalizes_various_unicode_whitespace():
+    # NBSP (U+00A0), em-space (U+2003), narrow no-break space (U+202F),
+    # ideographic space (U+3000) — each → one ASCII space, one-to-one.
+    body = 'a b c d　e'
+    xml = (
+        '<ac:structured-macro ac:name="latex-inline">'
+        f'<ac:plain-text-body><![CDATA[{body}]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert out == "$a b c d e$"
+
+
+def test_macro_latex_block_normalizes_unicode_space():
+    xml = (
+        '<ac:structured-macro ac:name="latex-block">'
+        '<ac:plain-text-body><![CDATA[\\alpha \\beta]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+    )
+    assert convert(xml).strip() == "$\\alpha \\beta$"
+
+
 def test_macro_latex_block_separates_consecutive_blocks_with_newline():
     xml = (
         '<ac:structured-macro ac:name="latex-block">'

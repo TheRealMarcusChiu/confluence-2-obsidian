@@ -438,6 +438,7 @@ class Converter:
         if name in ('latex-inline', 'latex', 'latex-block'):
             body = self._macro_text_body(tag).strip()
             body = re.sub(r'\s*[\r\n]+\s*', '', body)
+            body = re.sub(r'\s', ' ', body)
             suffix = '\n' if name == 'latex-block' else ''
             return f"${body}${suffix}"
         if name == 'code':
