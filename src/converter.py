@@ -649,7 +649,17 @@ class Converter:
         if attach is not None:
             filename = normalize_filename_whitespace(attach.attrs.get('ri:filename', ''))
             self.attachments_referenced.append(filename)
-            return f"![[{self.page_name}/{filename}]]"
+            width = tag.attrs.get('ac:width')
+            height = tag.attrs.get('ac:height')
+            if width and height:
+                size = f"|{width}x{height}"
+            elif width:
+                size = f"|{width}"
+            elif height:
+                size = f"|0x{height}"
+            else:
+                size = ""
+            return f"![[{self.page_name}/{filename}{size}]]"
         url = tag.find('ri:url')
         if url is not None:
             return f"![]({url.attrs.get('ri:value', '')})"

@@ -956,6 +956,24 @@ def test_inline_image_normalizes_unicode_whitespace_in_filename():
     assert out == "![[MyPage/Screenshot at 12.png]]"
     assert nbsp not in out
 
+def test_inline_image_with_width_only_emits_obsidian_size_suffix():
+    xml = '<ac:image ac:width="400"><ri:attachment ri:filename="image.png" /></ac:image>'
+    out = convert(xml, page_name="MyPage")
+    assert out == "![[MyPage/image.png|400]]"
+
+
+def test_inline_image_with_height_only_emits_zero_x_height_suffix():
+    xml = '<ac:image ac:style="max-height: 250.0px;" ac:height="250"><ri:attachment ri:filename="image.png" /></ac:image>'
+    out = convert(xml, page_name="MyPage")
+    assert out == "![[MyPage/image.png|0x250]]"
+
+
+def test_inline_image_with_width_and_height_emits_w_x_h_suffix():
+    xml = '<ac:image ac:width="400" ac:height="250"><ri:attachment ri:filename="image.png" /></ac:image>'
+    out = convert(xml, page_name="MyPage")
+    assert out == "![[MyPage/image.png|400x250]]"
+
+
 def test_ac_link_to_attachment_normalizes_unicode_whitespace_in_filename():
     nbsp = chr(0xa0)
     xml = f'<ac:link><ri:attachment ri:filename="My{nbsp}File.pdf" /></ac:link>'
