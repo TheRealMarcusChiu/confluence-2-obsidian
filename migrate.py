@@ -11,6 +11,7 @@ from src.converter import Converter
 from src.frontmatter import build_frontmatter
 from src.paths import PathResolver
 from src.report import MigrationReport
+from src.sanitize import normalize_filename_whitespace
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -73,7 +74,7 @@ def migrate_page(
             report.record_failure(f"{title} :: {filename}", f"attachment download: {e}")
             continue
         attachment_dir.mkdir(parents=True, exist_ok=True)
-        (attachment_dir / filename).write_bytes(content)
+        (attachment_dir / normalize_filename_whitespace(filename)).write_bytes(content)
 
 
 def main():

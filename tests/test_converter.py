@@ -932,6 +932,21 @@ def test_inline_image_attachment():
     assert out == "![[MyPage/diagram.png]]"
 
 
+def test_inline_image_normalizes_unicode_whitespace_in_filename():
+    # NBSP (U+00A0) — common in Confluence screenshot filenames
+    nbsp = chr(0xa0)
+    xml = f'<ac:image><ri:attachment ri:filename="Screenshot{nbsp}at{nbsp}12.png" /></ac:image>'
+    out = convert(xml, page_name="MyPage")
+    assert out == "![[MyPage/Screenshot at 12.png]]"
+    assert nbsp not in out
+
+def test_ac_link_to_attachment_normalizes_unicode_whitespace_in_filename():
+    nbsp = chr(0xa0)
+    xml = f'<ac:link><ri:attachment ri:filename="My{nbsp}File.pdf" /></ac:link>'
+    out = convert(xml, page_name="MyPage")
+    assert out == "[[MyPage/My File.pdf]]"
+    assert nbsp not in out
+
 def test_image_with_ri_url_youtube():
     xml = '<ac:image><ri:url ri:value="https://youtube.com/watch?v=abc" /></ac:image>'
     out = convert(xml)
@@ -1143,6 +1158,14 @@ def test_macro_view_file_emits_attachment_embed():
     assert out == "![[MyPage/report.docx]]"
     assert "report.docx" in c.attachments_referenced
 
+
+def test_macro_view_file_normalizes_unicode_whitespace_in_filename():
+    nbsp = chr(0xa0)
+    xml = f'<ac:structured-macro ac:name="view-file"><ac:parameter ac:name="name"><ri:attachment ri:filename="Quarterly{nbsp}Report.docx" /></ac:parameter></ac:structured-macro>'
+    c = Converter("MyPage")
+    out = c.convert(xml).strip()
+    assert out == "![[MyPage/Quarterly Report.docx]]"
+    assert nbsp not in out
 
 def test_macro_viewpdf_emits_attachment_embed():
     xml = '<ac:structured-macro ac:name="viewpdf"><ac:parameter ac:name="name"><ri:attachment ri:filename="doc.pdf" /></ac:parameter></ac:structured-macro>'

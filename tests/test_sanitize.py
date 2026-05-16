@@ -1,4 +1,17 @@
-from src.sanitize import sanitize_title, was_sanitized
+from src.sanitize import normalize_filename_whitespace, sanitize_title, was_sanitized
+
+
+def test_normalize_filename_whitespace_replaces_nbsp():
+    assert normalize_filename_whitespace("Screenshot at 12.png") == "Screenshot at 12.png"
+
+
+def test_normalize_filename_whitespace_one_to_one():
+    # NBSP, em-space, narrow-NBSP, ideographic space — each → exactly one ASCII space
+    assert normalize_filename_whitespace("a b c d　e") == "a b c d e"
+
+
+def test_normalize_filename_whitespace_passes_through_ascii_spaces():
+    assert normalize_filename_whitespace("Plain Title.png") == "Plain Title.png"
 
 
 def test_sanitize_passes_clean_title_unchanged():

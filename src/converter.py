@@ -1,7 +1,7 @@
 import re
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-from src.sanitize import sanitize_title
+from src.sanitize import normalize_filename_whitespace, sanitize_title
 
 
 CDATA_RE = re.compile(r'<!\[CDATA\[(.*?)\]\]>', re.DOTALL)
@@ -402,7 +402,7 @@ class Converter:
                 f"unsupported ac:image (no ri:filename) on page '{self.page_name}'"
             )
             return None
-        filename = re.sub(r'\s', ' ', filename)
+        filename = normalize_filename_whitespace(filename)
         parts = [f'src="{filename}"']
         width = tag.attrs.get('ac:width')
         if width:
@@ -574,6 +574,7 @@ class Converter:
         filename = attach.attrs.get('ri:filename', '')
         if not filename:
             return ''
+        filename = normalize_filename_whitespace(filename)
         self.attachments_referenced.append(filename)
         return f"![[{self.page_name}/{filename}]]"
 
@@ -636,7 +637,7 @@ class Converter:
             text = display or href
             return f"[{text}]({href})"
         if attach is not None:
-            filename = attach.attrs.get('ri:filename', '')
+            filename = normalize_filename_whitespace(attach.attrs.get('ri:filename', ''))
             self.attachments_referenced.append(filename)
             if display:
                 return f"[[{self.page_name}/{filename}|{display}]]"
@@ -646,7 +647,7 @@ class Converter:
     def _render_ac_image(self, tag: Tag) -> str:
         attach = tag.find('ri:attachment')
         if attach is not None:
-            filename = attach.attrs.get('ri:filename', '')
+            filename = normalize_filename_whitespace(attach.attrs.get('ri:filename', ''))
             self.attachments_referenced.append(filename)
             return f"![[{self.page_name}/{filename}]]"
         url = tag.find('ri:url')

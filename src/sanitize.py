@@ -1,3 +1,13 @@
+import re
+
+
+_FILENAME_WHITESPACE_RE = re.compile(r'\s')
+
+
+def normalize_filename_whitespace(filename: str) -> str:
+    return _FILENAME_WHITESPACE_RE.sub(' ', filename)
+
+
 INVALID_TO_FULLWIDTH = {
     ':': '：',
     '/': '／',
