@@ -435,13 +435,10 @@ class Converter:
             return self._render_excerpt(tag)
         if name == 'excerpt-include':
             return self._render_excerpt_include(tag)
-        if name in ('latex-inline', 'latex'):
+        if name in ('latex-inline', 'latex', 'latex-block'):
             body = self._macro_text_body(tag).strip()
             body = re.sub(r'\s*[\r\n]+\s*', ' ', body)
             return f"${body}$"
-        if name == 'latex-block':
-            body = self._macro_text_body(tag).strip()
-            return f"\n$${body}$$"
         if name == 'code':
             return self._render_code_macro(tag)
         if name == 'info':

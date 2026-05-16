@@ -361,14 +361,21 @@ def test_macro_latex_inline_collapses_multiple_newlines_to_one_space():
     assert out == "$a b$"
 
 
-def test_macro_latex_block_keeps_multiline():
+def test_macro_latex_block_collapses_multiline_to_inline_math():
     xml = (
         '<ac:structured-macro ac:name="latex-block">'
         '<ac:plain-text-body><![CDATA[a\nb]]></ac:plain-text-body>'
         '</ac:structured-macro>'
     )
     out = convert(xml).strip()
-    assert "$$a\nb$$" in out
+    assert out == "$a b$"
+
+
+def test_macro_latex_block_is_alias_of_latex_inline():
+    body = '<ac:plain-text-body><![CDATA[\\frac{a}{b} + c]]></ac:plain-text-body>'
+    inline_xml = f'<ac:structured-macro ac:name="latex-inline">{body}</ac:structured-macro>'
+    block_xml = f'<ac:structured-macro ac:name="latex-block">{body}</ac:structured-macro>'
+    assert convert(inline_xml).strip() == convert(block_xml).strip()
 
 
 def test_br_becomes_backslash_break():
@@ -797,7 +804,7 @@ def test_macro_latex_inline():
 def test_macro_latex_block():
     xml = '<ac:structured-macro ac:name="latex-block"><ac:plain-text-body><![CDATA[\\int x dx]]></ac:plain-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert "$$\\int x dx$$" in out
+    assert out == "$\\int x dx$"
 
 
 def test_macro_children_display():
