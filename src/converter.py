@@ -655,8 +655,6 @@ class Converter:
                 size = f"|{width}x{height}"
             elif width:
                 size = f"|{width}"
-            elif height:
-                size = f"|0x{height}"
             else:
                 size = ""
             return f"![[{self.page_name}/{filename}{size}]]"

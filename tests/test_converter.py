@@ -962,10 +962,12 @@ def test_inline_image_with_width_only_emits_obsidian_size_suffix():
     assert out == "![[MyPage/image.png|400]]"
 
 
-def test_inline_image_with_height_only_emits_zero_x_height_suffix():
+def test_inline_image_with_height_only_emits_no_size_suffix():
+    # Obsidian's |0xH "height-only" suffix doesn't render reliably; drop the
+    # hint entirely when ac:width is absent and let Obsidian use natural size.
     xml = '<ac:image ac:style="max-height: 250.0px;" ac:height="250"><ri:attachment ri:filename="image.png" /></ac:image>'
     out = convert(xml, page_name="MyPage")
-    assert out == "![[MyPage/image.png|0x250]]"
+    assert out == "![[MyPage/image.png]]"
 
 
 def test_inline_image_with_width_and_height_emits_w_x_h_suffix():
