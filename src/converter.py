@@ -21,6 +21,32 @@ def _unescape_html(text: str) -> str:
     return text.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
 
 
+_LIST_LINE_RE = re.compile(r'^(\t*)(- |\d+\. )')
+
+
+def _inject_list_placeholders(text: str) -> str:
+    lines = text.split('\n')
+    out = []
+    stack: list[int] = []
+    for line in lines:
+        m = _LIST_LINE_RE.match(line)
+        if m is None:
+            stack = []
+            out.append(line)
+            continue
+        depth = len(m.group(1))
+        while stack and stack[-1] > depth:
+            stack.pop()
+        if not stack or stack[-1] != depth:
+            start = stack[-1] + 1 if stack else 0
+            for missing in range(start, depth):
+                out.append('\t' * missing + '- ')
+                stack.append(missing)
+            stack.append(depth)
+        out.append(line)
+    return '\n'.join(out)
+
+
 def _plain_text_escape_re(node):
     parent = getattr(node, 'parent', None)
     triggered = False
@@ -62,6 +88,7 @@ class Converter:
 
     def _collapse_blanks(self, text: str) -> str:
         text = re.sub(r'\n{3,}', '\n\n', text)
+        text = _inject_list_placeholders(text)
         return text.strip() + '\n'
 
     def _render(self, node) -> str:

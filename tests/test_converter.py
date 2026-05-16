@@ -1,8 +1,37 @@
-from src.converter import Converter
+from src.converter import Converter, _inject_list_placeholders
 
 
 def convert(xml: str, page_name: str = "TestPage") -> str:
     return Converter(page_name).convert(xml).strip()
+
+
+def test_inject_list_placeholders_indented_list_after_non_list_content():
+    src = "ANY_NON_LIST_CONTENT\n\t- Hello"
+    assert _inject_list_placeholders(src) == "ANY_NON_LIST_CONTENT\n- \n\t- Hello"
+
+
+def test_inject_list_placeholders_valid_list_unchanged():
+    src = "ANY_NON_LIST_CONTENT\n- ANYTHING\n\t- Hello"
+    assert _inject_list_placeholders(src) == src
+
+
+def test_inject_list_placeholders_recursive_for_deeper_jump():
+    src = "ANY_NON_LIST_CONTENT\n\t\t- Hello"
+    expected = "ANY_NON_LIST_CONTENT\n- \n\t- \n\t\t- Hello"
+    assert _inject_list_placeholders(src) == expected
+
+
+def test_inject_list_placeholders_handles_mid_list_jump():
+    src = "- something\n\t\t- Hello"
+    expected = "- something\n\t- \n\t\t- Hello"
+    assert _inject_list_placeholders(src) == expected
+
+
+def test_inject_list_placeholders_ordered_uses_dash_placeholder():
+    # Deeper line is ordered; placeholder is always bare "- ", never "1. "
+    src = "ANY_NON_LIST_CONTENT\n\t\t1. Hello"
+    expected = "ANY_NON_LIST_CONTENT\n- \n\t- \n\t\t1. Hello"
+    assert _inject_list_placeholders(src) == expected
 
 
 def test_plain_paragraph():
