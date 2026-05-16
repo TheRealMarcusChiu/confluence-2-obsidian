@@ -32,8 +32,8 @@ Obsidian vault — a local directory of Markdown files.
 - **Heading levels**: `<h1>` → `#`, `<h2>` → `##`, `<h3>` → `###`; `<h4>`, `<h5>`, `<h6>` all clamp to `######` (the deepest Markdown heading)
 - **Macro: Excerpt** → rendered Markdown body wrapped in a fenced `` ```excerpt `` code block followed immediately by a `^excerpt` block anchor on the next line; rendered by a custom Obsidian plugin
 - **Macro: Include Excerpt** → `![[Page Title#^excerpt]]` Obsidian block transclusion; page title extracted from `ac:parameter[ac:name=""]` → `ri:page[@ri:content-title]`; `nopanel` parameter ignored
-- **Macro: `latex-inline`** → `$<CDATA>$` (Obsidian inline math)
-- **Macro: `latex-block`** → `$$<CDATA>$$` (Obsidian block math)
+- **Macro: `latex-inline`** → `$<CDATA>$` (Obsidian inline math); any run of newlines in the CDATA body (and surrounding whitespace) is collapsed to a single space so the inline math stays on one line — Obsidian's inline math renderer breaks on embedded newlines. LaTeX itself is whitespace-insensitive between tokens, so the rendered math is unchanged. `latex-block` keeps its multiline body verbatim (see below).
+- **Macro: `latex-block`** → `$$<CDATA>$$` (Obsidian block math); multiline content preserved as-is — block math is supposed to span multiple lines (matrices, aligned equations, etc.) and Obsidian renders it correctly.
 - **Macro: `code`** → fenced code block with language from `ac:parameter[language]`
 - **Macro: `info`** → `> [!info]` callout wrapping the body content
 - **Macro: `warning`** → `> [!warning]` callout wrapping the body content

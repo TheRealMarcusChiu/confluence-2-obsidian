@@ -409,6 +409,7 @@ class Converter:
             return self._render_excerpt_include(tag)
         if name in ('latex-inline', 'latex'):
             body = self._macro_text_body(tag).strip()
+            body = re.sub(r'\s*[\r\n]+\s*', ' ', body)
             return f"${body}$"
         if name == 'latex-block':
             body = self._macro_text_body(tag).strip()

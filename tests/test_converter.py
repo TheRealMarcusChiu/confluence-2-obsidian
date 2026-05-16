@@ -272,6 +272,38 @@ def test_escape_intraword_underscore_still_escapes():
     assert convert("<p>foo_bar_baz</p>") == "foo\\_bar\\_baz"
 
 
+def test_macro_latex_inline_collapses_newline_to_space():
+    xml = (
+        '<ac:structured-macro ac:name="latex-inline">'
+        '<ac:plain-text-body><![CDATA[\\sum_{i=1}^p |\\beta_i| ≤ t\n'
+        '\\;\\;\\;\\; \\text{ for some } t > 0]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml).strip()
+    assert out == "$\\sum_{i=1}^p |\\beta_i| ≤ t \\;\\;\\;\\; \\text{ for some } t > 0$"
+    assert "\n" not in out
+
+
+def test_macro_latex_inline_collapses_multiple_newlines_to_one_space():
+    xml = (
+        '<ac:structured-macro ac:name="latex-inline">'
+        '<ac:plain-text-body><![CDATA[a\n\n\nb]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml).strip()
+    assert out == "$a b$"
+
+
+def test_macro_latex_block_keeps_multiline():
+    xml = (
+        '<ac:structured-macro ac:name="latex-block">'
+        '<ac:plain-text-body><![CDATA[a\nb]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml).strip()
+    assert "$$a\nb$$" in out
+
+
 def test_br_becomes_backslash_break():
     out = convert("<p>line1<br/>line2</p>")
     assert "line1\\\nline2" in out
