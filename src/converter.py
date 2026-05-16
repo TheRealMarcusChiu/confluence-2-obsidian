@@ -97,7 +97,7 @@ class Converter:
                 return ''
             return '\n\n' + inner
         if name == 'br':
-            return '\\\n'
+            return '\n' if self._inside_pre(tag) else '\\\n'
         if name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
             return self._render_heading(tag, int(name[1]))
         if name in ('strong', 'b'):
@@ -111,7 +111,7 @@ class Converter:
         if name == 'code':
             return f"<code>{self._inline(tag)}</code>"
         if name == 'pre':
-            return f"\n```\n{self._render_children(tag)}\n```"
+            return self._render_pre(tag)
         if name == 'a':
             return self._render_a(tag)
         if name in ('ul', 'ol'):
@@ -149,6 +149,30 @@ class Converter:
         new_level = level if level <= 3 else 6
         text = self._inline(tag)
         return '\n' + '#' * new_level + ' ' + text
+
+    def _inside_pre(self, tag: Tag) -> bool:
+        parent = tag.parent
+        while parent is not None:
+            if (parent.name or '').lower() == 'pre':
+                return True
+            parent = parent.parent
+        return False
+
+    def _render_pre(self, tag: Tag) -> str:
+        parts = []
+        for child in tag.children:
+            if isinstance(child, NavigableString):
+                parts.append(str(child))
+            elif isinstance(child, Tag):
+                parts.append(self._render(child))
+        lines = ''.join(parts).split('\n')
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+        if not lines:
+            return ''
+        return '\n' + '\n'.join(f'<code>{line}</code>' for line in lines)
 
     def _is_macro_only_paragraph(self, tag: Tag) -> bool:
         macros = []
@@ -306,6 +330,10 @@ class Converter:
         return has_br
 
     def _render_cell_node(self, tag: Tag, depth: int) -> str:
+        if tag.name == 'pre':
+            self.warnings.append(
+                f"<pre> inside table cell (kept as raw HTML) on page '{self.page_name}'"
+            )
         if tag.name == 'ac:link':
             return self._extract_ac_link_text(tag)
         if tag.name == 'ac:image':

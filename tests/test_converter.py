@@ -240,6 +240,73 @@ def test_escape_suppressed_inside_pre():
     assert "\\[" not in out
 
 
+def test_pre_in_table_cell_stays_raw_html_and_logs_warning():
+    from src.converter import Converter
+    xml = "<table><tr><td><pre>x</pre></td></tr></table>"
+    c = Converter("MyPage")
+    out = c.convert(xml).strip()
+    assert "<pre>x</pre>" in out
+    assert "<code>x</code>" not in out
+    assert any("pre" in w.lower() and "MyPage" in w for w in c.warnings)
+
+
+def test_pre_uncolored_span_unwraps_but_colored_becomes_font():
+    out = convert('<pre><span>plain</span> <span style="color: red;">red</span></pre>')
+    assert out == '<code>plain <font style="color: red;">red</font></code>'
+
+
+def test_pre_strong_renders_as_literal_markdown():
+    out = convert("<pre><strong>foo</strong></pre>")
+    assert out == "<code>**foo**</code>"
+
+
+def test_pre_empty_emits_nothing():
+    assert convert("<pre></pre>") == ""
+    assert convert("<pre>  \n  </pre>") == ""
+
+
+def test_pre_splits_on_br_and_newline():
+    out = convert("<pre>a<br/>b\nc</pre>")
+    assert out == "<code>a</code>\n<code>b</code>\n<code>c</code>"
+
+
+def test_pre_drops_trailing_empty_lines():
+    out = convert("<pre>foo\n\n\n</pre>")
+    assert out == "<code>foo</code>"
+
+
+def test_pre_keeps_internal_empty_lines():
+    out = convert("<pre>foo\n\nbar</pre>")
+    assert out == "<code>foo</code>\n<code></code>\n<code>bar</code>"
+
+
+def test_pre_emits_multi_code_one_per_line():
+    xml = (
+        '<pre>'
+        '<span class="nf" style="color: rgb(0,0,255);">GET</span> '
+        '<span class="nn" style="color: rgb(0,0,255);">/index.html</span> '
+        '<span class="kr" style="color: rgb(0,128,0);">HTTP</span>'
+        '<span class="o" style="color: rgb(102,102,102);">/</span>'
+        '<span class="m" style="color: rgb(102,102,102);">1.1</span>\n'
+        '<span class="na" style="color: rgb(125,144,41);">Host</span>'
+        '<span class="o" style="color: rgb(102,102,102);">:</span> '
+        '<span class="l">www.example.org</span>\n'
+        '<span class="err">...<br /></span><br /><br />'
+        '</pre>'
+    )
+    expected = (
+        '<code><font style="color: rgb(0,0,255);">GET</font> '
+        '<font style="color: rgb(0,0,255);">/index.html</font> '
+        '<font style="color: rgb(0,128,0);">HTTP</font>'
+        '<font style="color: rgb(102,102,102);">/</font>'
+        '<font style="color: rgb(102,102,102);">1.1</font></code>\n'
+        '<code><font style="color: rgb(125,144,41);">Host</font>'
+        '<font style="color: rgb(102,102,102);">:</font> www.example.org</code>\n'
+        '<code>...</code>'
+    )
+    assert convert(xml) == expected
+
+
 def test_escape_suppressed_inside_colored_span_font():
     out = convert('<p><span style="color: red;">[red text]</span></p>')
     assert out == '<font style="color: red;">[red text]</font>'
