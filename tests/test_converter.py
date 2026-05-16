@@ -339,7 +339,7 @@ def test_escape_intraword_underscore_still_escapes():
     assert convert("<p>foo_bar_baz</p>") == "foo\\_bar\\_baz"
 
 
-def test_macro_latex_inline_joins_multiline_with_no_separator():
+def test_macro_latex_inline_joins_multiline_with_single_space():
     xml = (
         '<ac:structured-macro ac:name="latex-inline">'
         '<ac:plain-text-body><![CDATA[\\sum_{i=1}^p |\\beta_i| ≤ t\n'
@@ -347,18 +347,18 @@ def test_macro_latex_inline_joins_multiline_with_no_separator():
         '</ac:structured-macro>'
     )
     out = convert(xml).strip()
-    assert out == "$\\sum_{i=1}^p |\\beta_i| ≤ t\\;\\;\\;\\; \\text{ for some } t > 0$"
+    assert out == "$\\sum_{i=1}^p |\\beta_i| ≤ t \\;\\;\\;\\; \\text{ for some } t > 0$"
     assert "\n" not in out
 
 
-def test_macro_latex_inline_collapses_multiple_newlines_to_nothing():
+def test_macro_latex_inline_collapses_multiple_newlines_to_single_space():
     xml = (
         '<ac:structured-macro ac:name="latex-inline">'
         '<ac:plain-text-body><![CDATA[a\n\n\nb]]></ac:plain-text-body>'
         '</ac:structured-macro>'
     )
     out = convert(xml).strip()
-    assert out == "$ab$"
+    assert out == "$a b$"
 
 
 def test_macro_latex_block_collapses_multiline_to_inline_math():
@@ -368,7 +368,7 @@ def test_macro_latex_block_collapses_multiline_to_inline_math():
         '</ac:structured-macro>'
     )
     out = convert(xml).strip()
-    assert out == "$ab$"
+    assert out == "$a b$"
 
 
 def test_macro_latex_block_is_alias_of_latex_inline():
