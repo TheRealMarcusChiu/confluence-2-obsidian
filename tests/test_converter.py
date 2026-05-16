@@ -484,6 +484,28 @@ def test_colored_inline_code_composes():
     assert convert(xml) == '<code><font style="color: rgb(128,128,128);">CODE</font></code>'
 
 
+def test_colored_span_wrapping_sole_code_swaps_to_code_outer():
+    # Reverse source nesting (span outer, code inner) normalizes to code-outer
+    # so Obsidian's font-color plugin renders the colour inside <code>.
+    xml = '<p><span style="color: rgb(122,134,154);"><code>CODE</code></span></p>'
+    assert convert(xml) == '<code><font style="color: rgb(122,134,154);">CODE</font></code>'
+
+
+def test_colored_span_with_mixed_content_around_code_does_not_swap():
+    # Span has more than just one <code> child — keep span outer.
+    xml = '<p><span style="color: red;">prefix <code>X</code> suffix</span></p>'
+    out = convert(xml)
+    assert out.startswith('<font style="color: red;">')
+    assert "<code>X</code>" in out
+    assert out.endswith("</font>")
+
+
+def test_colored_span_with_multiple_code_children_does_not_swap():
+    xml = '<p><span style="color: red;"><code>X</code><code>Y</code></span></p>'
+    out = convert(xml)
+    assert out == '<font style="color: red;"><code>X</code><code>Y</code></font>'
+
+
 def test_external_link():
     out = convert('<p><a href="https://example.com">site</a></p>')
     assert "[site](https://example.com)" in out

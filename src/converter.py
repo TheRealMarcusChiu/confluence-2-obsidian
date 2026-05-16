@@ -125,6 +125,9 @@ class Converter:
         if name == 'span':
             style = tag.attrs.get('style', '')
             if 'color:' in style:
+                sole_code = self._sole_code_child(tag)
+                if sole_code is not None:
+                    return f'<code><font style="{style}">{self._inline(sole_code)}</font></code>'
                 return f'<font style="{style}">{self._inline(tag)}</font>'
             return self._render_children(tag)
         if name == 'hr':
@@ -149,6 +152,20 @@ class Converter:
         new_level = level if level <= 3 else 6
         text = self._inline(tag)
         return '\n' + '#' * new_level + ' ' + text
+
+    def _sole_code_child(self, tag: Tag) -> Tag | None:
+        code = None
+        for child in tag.children:
+            if isinstance(child, NavigableString):
+                if str(child).strip():
+                    return None
+                continue
+            if isinstance(child, Tag):
+                if (child.name or '').lower() == 'code' and code is None:
+                    code = child
+                else:
+                    return None
+        return code
 
     def _inside_pre(self, tag: Tag) -> bool:
         parent = tag.parent
