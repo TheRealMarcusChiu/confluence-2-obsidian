@@ -115,7 +115,23 @@ def test_list_item_with_only_expand_no_inline_text():
     )
     out = convert(xml).strip()
     expected = (
-        "-\n"
+        "- \n"
+        "> [!expand]- T\n"
+        "> body"
+    )
+    assert out == expected
+
+
+def test_ordered_list_empty_item_with_block_content_keeps_marker_space():
+    xml = (
+        '<ol><li>'
+        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
+        '</li></ol>'
+    )
+    out = convert(xml).strip()
+    expected = (
+        "1. \n"
         "> [!expand]- T\n"
         "> body"
     )

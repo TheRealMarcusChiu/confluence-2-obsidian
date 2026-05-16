@@ -221,7 +221,7 @@ class Converter:
                 else:
                     inline_parts.append(rendered)
             body = ''.join(inline_parts).strip().replace('\n', ' ')
-            item_line = f"{indent}{marker} {body}".rstrip()
+            item_line = f"{indent}{marker} {body}"
             if block_parts:
                 self.warnings.append(
                     f"list item with block content (hoisted to column 0) on page '{self.page_name}'"
