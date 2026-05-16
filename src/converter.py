@@ -22,6 +22,11 @@ def _unescape_html(text: str) -> str:
 
 
 _LIST_LINE_RE = re.compile(r'^(\t*)(- |\d+\. )')
+_OL_RESTART_RE = re.compile(r'((\t*)\d+\. [^\n]*)\n+\2(1\. )')
+
+
+def _break_adjacent_ordered_lists(text: str) -> str:
+    return _OL_RESTART_RE.sub(r'\1\n\n\2> \n\n\2\3', text)
 
 
 def _inject_list_placeholders(text: str) -> str:
@@ -89,6 +94,7 @@ class Converter:
     def _collapse_blanks(self, text: str) -> str:
         text = re.sub(r'\n{3,}', '\n\n', text)
         text = _inject_list_placeholders(text)
+        text = _break_adjacent_ordered_lists(text)
         return text.strip() + '\n'
 
     def _render(self, node) -> str:

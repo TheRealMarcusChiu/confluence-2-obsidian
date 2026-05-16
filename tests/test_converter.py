@@ -21,6 +21,38 @@ def test_inject_list_placeholders_recursive_for_deeper_jump():
     assert _inject_list_placeholders(src) == expected
 
 
+def test_adjacent_ordered_lists_with_cursor_park_break_inserts_blockquote_separator():
+    # Confluence emits a cursor-park <p><br/></p> between two <ol>s; the empty
+    # paragraph is dropped, so without the separator the two lists merge into
+    # one in Obsidian. The post-process inserts an empty-blockquote breaker.
+    xml = (
+        '<ol><li>HELLO</li><li>WORLD</li></ol>'
+        '<p><br /></p>'
+        '<ol><li>HELLO</li><li>WORLD</li></ol>'
+    )
+    assert convert(xml) == "1. HELLO\n2. WORLD\n\n> \n\n1. HELLO\n2. WORLD"
+
+
+def test_single_ordered_list_does_not_get_blockquote_separator():
+    xml = '<ol><li>A</li><li>B</li><li>C</li></ol>'
+    assert convert(xml) == "1. A\n2. B\n3. C"
+
+
+def test_ordered_lists_separated_by_text_paragraph_no_separator():
+    # Real content between the two <ol>s already breaks the merge — no
+    # post-process injection needed.
+    xml = (
+        '<ol><li>A</li></ol>'
+        '<p>break</p>'
+        '<ol><li>B</li></ol>'
+    )
+    out = convert(xml)
+    assert "> " not in out
+    assert "1. A" in out
+    assert "break" in out
+    assert "1. B" in out
+
+
 def test_inject_list_placeholders_handles_mid_list_jump():
     src = "- something\n\t\t- Hello"
     expected = "- something\n\t- \n\t\t- Hello"
