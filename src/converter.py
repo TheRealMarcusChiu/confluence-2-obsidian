@@ -5,6 +5,12 @@ from src.sanitize import sanitize_title
 
 
 CDATA_RE = re.compile(r'<!\[CDATA\[(.*?)\]\]>', re.DOTALL)
+PLAIN_TEXT_ESCAPE_RE = re.compile(r'([\\`*_~#\[\]$])')
+BRACKETS_ONLY_ESCAPE_RE = re.compile(r'([\[\]])')
+ESCAPE_TRIGGER_TAGS = frozenset({'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                                  'li', 'strong', 'em', 'u', 'sub', 'sup'})
+LINK_DISPLAY_TAGS = frozenset({'a', 'ac:link'})
+VERBATIM_TAGS = frozenset({'code', 'pre', 'ac:plain-text-body', 'ac:plain-text-link-body'})
 
 
 def _escape_html(text: str) -> str:
@@ -13,6 +19,26 @@ def _escape_html(text: str) -> str:
 
 def _unescape_html(text: str) -> str:
     return text.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+
+
+def _plain_text_escape_re(node):
+    parent = getattr(node, 'parent', None)
+    triggered = False
+    while parent is not None:
+        name = (parent.name or '').lower()
+        if name in LINK_DISPLAY_TAGS:
+            return BRACKETS_ONLY_ESCAPE_RE
+        if name in VERBATIM_TAGS:
+            return None
+        if name == 'span':
+            style = parent.attrs.get('style', '') or ''
+            if 'color:' in style:
+                return None
+            triggered = True
+        elif name in ESCAPE_TRIGGER_TAGS:
+            triggered = True
+        parent = getattr(parent, 'parent', None)
+    return PLAIN_TEXT_ESCAPE_RE if triggered else None
 
 
 class Converter:
@@ -43,6 +69,9 @@ class Converter:
             text = str(node)
             if text.strip() == '' and '\n' in text:
                 return ''
+            escape_re = _plain_text_escape_re(node)
+            if escape_re is not None:
+                text = escape_re.sub(r'\\\1', text)
             return text
         if isinstance(node, Tag):
             return self._render_tag(node)

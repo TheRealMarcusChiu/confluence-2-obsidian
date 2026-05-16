@@ -143,6 +143,135 @@ def test_list_item_inline_only_unchanged_no_warning():
     assert not any("list item" in w.lower() for w in c.warnings)
 
 
+def test_escape_brackets_in_paragraph():
+    assert convert("<p>literal [draft] text</p>") == "literal \\[draft\\] text"
+
+
+def test_escape_backslash_in_paragraph():
+    assert convert("<p>path\\to\\file</p>") == "path\\\\to\\\\file"
+
+
+def test_escape_dollar_in_paragraph():
+    assert convert("<p>price is $5 or $10</p>") == "price is \\$5 or \\$10"
+
+
+def test_escape_backtick_in_paragraph():
+    assert convert("<p>use `quote` here</p>") == "use \\`quote\\` here"
+
+
+def test_escape_asterisk_in_paragraph():
+    assert convert("<p>star *foo* end</p>") == "star \\*foo\\* end"
+
+
+def test_escape_underscore_in_paragraph():
+    assert convert("<p>name_with_underscores</p>") == "name\\_with\\_underscores"
+
+
+def test_escape_tilde_in_paragraph():
+    assert convert("<p>~~strike~~</p>") == "\\~\\~strike\\~\\~"
+
+
+def test_escape_hash_in_paragraph():
+    assert convert("<p>issue #123</p>") == "issue \\#123"
+
+
+def test_escape_combined_typed_backslash_bracket():
+    # User typed `\]` in Confluence; output must render back as `\]` (not just `]`).
+    # Source `\]` → after escape: `\` → `\\`, `]` → `\]`, giving `\\\]` (4 chars).
+    assert convert("<p>typed \\] here</p>") == "typed \\\\\\] here"
+
+
+def test_escape_applies_in_heading():
+    assert convert("<h1>Section [v2]</h1>") == "# Section \\[v2\\]"
+
+
+def test_escape_applies_in_list_item():
+    out = convert("<ul><li>item [pending]</li></ul>").strip()
+    assert out == "- item \\[pending\\]"
+
+
+def test_escape_applies_inside_strong():
+    out = convert("<p>before <strong>[bold]</strong> after</p>")
+    assert out == "before **\\[bold\\]** after"
+
+
+def test_escape_applies_inside_em():
+    out = convert("<p><em>[italic]</em></p>")
+    assert out == "*\\[italic\\]*"
+
+
+def test_escape_applies_inside_u():
+    out = convert("<p><u>[under]</u></p>")
+    assert out == "<u>\\[under\\]</u>"
+
+
+def test_escape_applies_inside_sub_sup():
+    out = convert("<p>H<sub>[2]</sub>O<sup>[+]</sup></p>")
+    assert out == "H<sub>\\[2\\]</sub>O<sup>\\[+\\]</sup>"
+
+
+def test_escape_applies_inside_uncolored_span():
+    out = convert('<p>before <span class="x">[span]</span> after</p>')
+    assert out == "before \\[span\\] after"
+
+
+def test_escape_brackets_only_inside_anchor_link_text():
+    # Inside <a>: brackets ARE escaped (so [text](url) parser sees a clean link
+    # display), but other chars stay verbatim so inline formatting still works.
+    out = convert('<p>see <a href="https://example.com">[link text]</a> here</p>')
+    assert "[\\[link text\\]](https://example.com)" in out
+
+
+def test_escape_formatting_chars_not_escaped_inside_anchor():
+    # `*`, `_`, `$`, etc. inside <a> are NOT escaped — formatting survives.
+    out = convert('<p><a href="u">*bold* and $x$</a></p>')
+    assert "[*bold* and $x$](u)" in out
+    assert "\\*" not in out
+    assert "\\$" not in out
+
+
+def test_escape_suppressed_inside_code():
+    assert convert("<p>use <code>[brackets]</code> here</p>") == "use <code>[brackets]</code> here"
+
+
+def test_escape_suppressed_inside_pre():
+    out = convert("<pre>[raw] code</pre>")
+    assert "[raw] code" in out
+    assert "\\[" not in out
+
+
+def test_escape_suppressed_inside_colored_span_font():
+    out = convert('<p><span style="color: red;">[red text]</span></p>')
+    assert out == '<font style="color: red;">[red text]</font>'
+    assert "\\[" not in out
+
+
+def test_escape_suppressed_in_code_macro_body():
+    # Code macro body comes from ac:plain-text-body (CDATA), no escape applied
+    xml = '<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">python</ac:parameter><ac:plain-text-body><![CDATA[a = [1, 2]]]></ac:plain-text-body></ac:structured-macro>'
+    out = convert(xml)
+    assert "a = [1, 2]" in out
+    assert "\\[" not in out
+
+
+def test_escape_closer_no_escape_wins_over_outer_paragraph():
+    # <p> says escape, but <code> closer says no — code wins.
+    out = convert("<p>foo <code>[x]</code> bar</p>")
+    assert out == "foo <code>[x]</code> bar"
+
+
+def test_escape_brackets_only_when_anchor_anywhere_in_chain():
+    # <strong> inside <a>: the <a> ancestor demotes the inner text to brackets-only mode,
+    # so [ ] are escaped but ** (strong) is preserved as inline formatting.
+    out = convert('<p><a href="u"><strong>[link]</strong></a></p>')
+    assert "[**\\[link\\]**](u)" in out
+
+
+def test_escape_intraword_underscore_still_escapes():
+    # Per docs: simplicity over precision — escape every _, even intraword.
+    assert convert("<p>foo_bar_baz</p>") == "foo\\_bar\\_baz"
+
+
 def test_br_becomes_backslash_break():
     out = convert("<p>line1<br/>line2</p>")
     assert "line1\\\nline2" in out
