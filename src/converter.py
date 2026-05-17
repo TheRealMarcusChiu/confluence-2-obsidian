@@ -160,8 +160,8 @@ class Converter:
             if 'color:' in style:
                 sole_code = self._sole_code_child(tag)
                 if sole_code is not None:
-                    return f'<code><font style="{style}">{self._inline(sole_code)}</font></code>'
-                return f'<font style="{style}">{self._inline(tag)}</font>'
+                    return f'<code><font style="{style}">{self._render_children(sole_code)}</font></code>'
+                return f'<font style="{style}">{self._render_children(tag)}</font>'
             return self._render_children(tag)
         if name == 'hr':
             return '\n---'

@@ -607,6 +607,20 @@ def test_colored_inline_code_composes():
     assert convert(xml) == '<code><font style="color: rgb(128,128,128);">CODE</font></code>'
 
 
+def test_colored_span_preserves_trailing_whitespace_in_content():
+    # Confluence syntax-highlighted code wraps tokens in <span style="color:...">
+    # — trailing space inside a span MUST survive so tokens don't glue together.
+    xml = '<code><span style="color: rgb(0,0,0);">refresh </span><span style="color: rgb(102,102,0);">-</span></code>'
+    out = convert(xml)
+    assert out == '<code><font style="color: rgb(0,0,0);">refresh </font><font style="color: rgb(102,102,0);">-</font></code>'
+
+
+def test_colored_span_preserves_leading_whitespace_in_content():
+    xml = '<code><span style="color: rgb(0,0,0);"> hello</span></code>'
+    out = convert(xml)
+    assert out == '<code><font style="color: rgb(0,0,0);"> hello</font></code>'
+
+
 def test_colored_span_wrapping_sole_code_swaps_to_code_outer():
     # Reverse source nesting (span outer, code inner) normalizes to code-outer
     # so Obsidian's font-color plugin renders the colour inside <code>.
