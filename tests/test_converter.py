@@ -746,6 +746,76 @@ def test_table_cell_latex_normalizes_multiline_and_unicode_whitespace():
     assert nbsp not in out
 
 
+def test_document_level_latex_block_logs_warning():
+    xml = '<ac:structured-macro ac:name="latex-block"><ac:plain-text-body><![CDATA[x]]></ac:plain-text-body></ac:structured-macro>'
+    c = Converter("MyPage")
+    c.convert(xml)
+    assert any("latex-block" in w and "MyPage" in w for w in c.warnings)
+
+
+def test_document_level_latex_inline_does_not_log_latex_warning():
+    xml = '<ac:structured-macro ac:name="latex-inline"><ac:plain-text-body><![CDATA[x]]></ac:plain-text-body></ac:structured-macro>'
+    c = Converter("MyPage")
+    c.convert(xml)
+    assert not any("latex-block" in w or "latex-inline" in w for w in c.warnings)
+
+
+def test_cell_latex_block_logs_warning():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="latex-block">'
+        '<ac:plain-text-body><![CDATA[x]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    c = Converter("MyPage")
+    c.convert(xml)
+    assert any("latex-block" in w and "MyPage" in w for w in c.warnings)
+
+
+def test_cell_untransformed_structured_macro_logs_with_name():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    c = Converter("MyPage")
+    c.convert(xml)
+    assert any(
+        "info" in w and "table cell" in w.lower() and "MyPage" in w
+        for w in c.warnings
+    )
+
+
+def test_cell_untransformed_anchor_macro_logs_warning():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">foo</ac:parameter></ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    c = Converter("MyPage")
+    c.convert(xml)
+    assert any(
+        "anchor" in w and "table cell" in w.lower() and "MyPage" in w
+        for w in c.warnings
+    )
+
+
+def test_cell_other_ac_element_logs_warning():
+    # ac:emoticon has no cell-specific handler — falls through to source-XML escape
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:emoticon ac:name="smile" />'
+        '</td></tr></tbody></table>'
+    )
+    c = Converter("MyPage")
+    c.convert(xml)
+    assert any(
+        "ac:emoticon" in w and "table cell" in w.lower() and "MyPage" in w
+        for w in c.warnings
+    )
+
+
 def test_table_cell_latex_html_escapes_body():
     # < and > inside LaTeX body must be HTML-escaped so the surrounding span stays valid HTML
     xml = (

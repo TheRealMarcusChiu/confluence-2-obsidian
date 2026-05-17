@@ -398,6 +398,13 @@ class Converter:
             if collapsed is not None:
                 return collapsed
         if tag.name and tag.name.startswith('ac:'):
+            if tag.name == 'ac:structured-macro':
+                identifier = f"ac:structured-macro[ac:name='{tag.attrs.get('ac:name', '?')}']"
+            else:
+                identifier = tag.name
+            self.warnings.append(
+                f"untransformed {identifier} inside table cell on page '{self.page_name}'"
+            )
             return str(tag).replace('<', '&lt;').replace('>', '&gt;')
         if self._cell_wrapper_should_strip(tag):
             return self._serialize_cell_children(tag, depth)
@@ -433,8 +440,13 @@ class Converter:
         return has_macro
 
     def _render_cell_latex(self, tag: Tag) -> str | None:
-        if tag.attrs.get('ac:name', '') not in ('latex-inline', 'latex', 'latex-block'):
+        macro_name = tag.attrs.get('ac:name', '')
+        if macro_name not in ('latex-inline', 'latex', 'latex-block'):
             return None
+        if macro_name == 'latex-block':
+            self.warnings.append(
+                f"latex-block rendered as inline math on page '{self.page_name}' (verify equation renders correctly)"
+            )
         body = self._macro_text_body(tag).strip()
         body = re.sub(r'\s*[\r\n]+\s*', ' ', body)
         body = re.sub(r'\s', ' ', body)
@@ -498,6 +510,10 @@ class Converter:
         if name == 'excerpt-include':
             return self._render_excerpt_include(tag)
         if name in ('latex-inline', 'latex', 'latex-block'):
+            if name == 'latex-block':
+                self.warnings.append(
+                    f"latex-block rendered as inline math on page '{self.page_name}' (verify equation renders correctly)"
+                )
             body = self._macro_text_body(tag).strip()
             body = re.sub(r'\s*[\r\n]+\s*', ' ', body)
             body = re.sub(r'\s', ' ', body)
