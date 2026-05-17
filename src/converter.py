@@ -268,9 +268,8 @@ class Converter:
                 is_p = isinstance(child, Tag) and child.name == 'p'
                 rendered = self._render(child)
                 stripped = rendered.strip()
-                if is_p and not seen_first_p:
-                    if stripped:
-                        inline_parts.append(stripped)
+                if is_p and not seen_first_p and stripped:
+                    inline_parts.append(stripped)
                     seen_first_p = True
                 elif seen_first_p:
                     if stripped:

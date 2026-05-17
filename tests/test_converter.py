@@ -41,6 +41,20 @@ def test_li_with_p_and_strong_after_hoists():
     assert out == "- X\n**Y**"
 
 
+def test_li_with_empty_p_then_inline_macro_keeps_macro_inline():
+    # Empty <p> shouldn't claim the <p>-split — the latex should stay inline
+    # on the list-item line, not get hoisted out leaving a bare "- ".
+    xml = '<ul><li><p></p><ac:structured-macro ac:name="latex-inline"><ac:plain-text-body><![CDATA[X]]></ac:plain-text-body></ac:structured-macro></li></ul>'
+    out = convert(xml)
+    assert out == "- $X$"
+
+
+def test_li_with_cursor_park_p_then_inline_macro_keeps_macro_inline():
+    xml = '<ul><li><p><br/></p><ac:structured-macro ac:name="latex-inline"><ac:plain-text-body><![CDATA[X]]></ac:plain-text-body></ac:structured-macro></li></ul>'
+    out = convert(xml)
+    assert out == "- $X$"
+
+
 def test_li_with_only_p_no_hoist():
     xml = '<ul><li><p>just paragraph</p></li></ul>'
     out = convert(xml)
