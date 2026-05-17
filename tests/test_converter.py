@@ -693,6 +693,72 @@ def test_table_cell_with_ac_macro_emitted_as_escaped_source_xml():
     assert "<ac:structured-macro" not in out
 
 
+def test_table_cell_latex_inline_renders_as_math_display_span():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="latex-inline">'
+        '<ac:plain-text-body><![CDATA[x^2 + y^2]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert '<span class="math display">x^2 + y^2</span>' in out
+    assert "&lt;ac:structured-macro" not in out
+
+
+def test_table_cell_latex_block_renders_as_math_display_span():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="latex-block">'
+        '<ac:plain-text-body><![CDATA[\\int x dx]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert '<span class="math display">\\int x dx</span>' in out
+
+
+def test_table_cell_latex_alias_renders_as_math_display_span():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="latex">'
+        '<ac:plain-text-body><![CDATA[\\alpha]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert '<span class="math display">\\alpha</span>' in out
+
+
+def test_table_cell_latex_normalizes_multiline_and_unicode_whitespace():
+    # Multi-line CDATA + NBSP in body — both normalized to single ASCII space
+    nbsp = chr(0xa0)
+    body = f'\\alpha\n\\beta{nbsp}\\gamma'
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="latex-inline">'
+        f'<ac:plain-text-body><![CDATA[{body}]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert '<span class="math display">\\alpha \\beta \\gamma</span>' in out
+    assert nbsp not in out
+
+
+def test_table_cell_latex_html_escapes_body():
+    # < and > inside LaTeX body must be HTML-escaped so the surrounding span stays valid HTML
+    xml = (
+        '<table><tbody><tr><td>'
+        '<ac:structured-macro ac:name="latex-inline">'
+        '<ac:plain-text-body><![CDATA[a < b > c & d]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert '<span class="math display">a &lt; b &gt; c &amp; d</span>' in out
+
+
 def test_table_cell_expand_with_title_renders_inline_details():
     xml = (
         '<table><tbody><tr><td>'

@@ -391,6 +391,9 @@ class Converter:
             if img is not None:
                 return img
         if tag.name == 'ac:structured-macro':
+            latex = self._render_cell_latex(tag)
+            if latex is not None:
+                return latex
             collapsed = self._render_cell_expand(tag, depth)
             if collapsed is not None:
                 return collapsed
@@ -428,6 +431,15 @@ class Converter:
                     return False
                 has_macro = True
         return has_macro
+
+    def _render_cell_latex(self, tag: Tag) -> str | None:
+        if tag.attrs.get('ac:name', '') not in ('latex-inline', 'latex', 'latex-block'):
+            return None
+        body = self._macro_text_body(tag).strip()
+        body = re.sub(r'\s*[\r\n]+\s*', ' ', body)
+        body = re.sub(r'\s', ' ', body)
+        body = _escape_html(body)
+        return f'<span class="math display">{body}</span>'
 
     def _render_cell_expand(self, tag: Tag, depth: int) -> str | None:
         macro_name = tag.attrs.get('ac:name', '')
