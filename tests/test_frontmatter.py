@@ -22,20 +22,20 @@ def test_frontmatter_omits_parent_for_root_page():
     assert "parent:" not in out
 
 
-def test_frontmatter_emits_parent_when_provided():
+def test_frontmatter_emits_parent_as_wiki_link():
     out = build_frontmatter(_page(), "https://confluence.example.com", parent="Root Page")
-    assert 'parent: "Root Page"' in out
+    assert 'parent: "[[Root Page]]"' in out
 
 
-def test_frontmatter_emits_children_as_yaml_block():
+def test_frontmatter_emits_children_as_wiki_link_yaml_block():
     out = build_frontmatter(
         _page(),
         "https://confluence.example.com",
         children=["Child A", "Child B"],
     )
     assert "children:" in out
-    assert '  - "Child A"' in out
-    assert '  - "Child B"' in out
+    assert '  - "[[Child A]]"' in out
+    assert '  - "[[Child B]]"' in out
     assert "children: []" not in out
 
 
@@ -45,4 +45,4 @@ def test_frontmatter_parent_value_yaml_quoted_when_contains_special_chars():
         "https://confluence.example.com",
         parent='Design： v2',  # sanitized fullwidth colon
     )
-    assert 'parent: "Design： v2"' in out
+    assert 'parent: "[[Design： v2]]"' in out

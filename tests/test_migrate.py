@@ -43,10 +43,10 @@ def test_migrate_page_writes_parent_and_children_into_frontmatter(tmp_path):
         children=["Module A", "Module B"],
     )
     content = file_path.read_text()
-    assert 'parent: "Root"' in content
+    assert 'parent: "[[Root]]"' in content
     assert "children:" in content
-    assert '  - "Module A"' in content
-    assert '  - "Module B"' in content
+    assert '  - "[[Module A]]"' in content
+    assert '  - "[[Module B]]"' in content
 
 
 def test_migrate_page_writes_empty_children_for_leaf(tmp_path):

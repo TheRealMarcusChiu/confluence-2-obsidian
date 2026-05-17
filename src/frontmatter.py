@@ -46,11 +46,11 @@ def build_frontmatter(
         for label in labels:
             lines.append(f"  - {label}")
     if parent:
-        lines.append(f"parent: {_yaml_quote(parent)}")
+        lines.append(f"parent: {_yaml_quote(f'[[{parent}]]')}")
     if children:
         lines.append("children:")
         for child in children:
-            lines.append(f"  - {_yaml_quote(child)}")
+            lines.append(f"  - {_yaml_quote(f'[[{child}]]')}")
     else:
         lines.append("children: []")
     lines.append("---")
