@@ -563,9 +563,12 @@ def test_macro_latex_block_separates_consecutive_blocks_with_newline():
     assert convert(xml) == "$x$\n$y$"
 
 
-def test_br_becomes_backslash_break():
+def test_br_becomes_plain_newline():
+    # Soft break inside the paragraph; Obsidian's default "Strict line breaks"
+    # OFF setting converts this to a rendered <br>.
     out = convert("<p>line1<br/>line2</p>")
-    assert "line1\\\nline2" in out
+    assert out == "line1\nline2"
+    assert "\\" not in out
 
 
 def test_sub_preserved_as_raw_html():

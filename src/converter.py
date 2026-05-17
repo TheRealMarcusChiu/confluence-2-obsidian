@@ -130,7 +130,7 @@ class Converter:
                 return ''
             return '\n\n' + inner
         if name == 'br':
-            return '\n' if self._inside_pre(tag) else '\\\n'
+            return '\n'
         if name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
             return self._render_heading(tag, int(name[1]))
         if name in ('strong', 'b'):
@@ -199,14 +199,6 @@ class Converter:
                 else:
                     return None
         return code
-
-    def _inside_pre(self, tag: Tag) -> bool:
-        parent = tag.parent
-        while parent is not None:
-            if (parent.name or '').lower() == 'pre':
-                return True
-            parent = parent.parent
-        return False
 
     def _render_pre(self, tag: Tag) -> str:
         parts = []
