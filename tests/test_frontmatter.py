@@ -12,6 +12,13 @@ def _page(title="Page", **extras):
     return base
 
 
+def test_frontmatter_does_not_emit_author():
+    out = build_frontmatter(_page(), "https://confluence.example.com")
+    assert "author:" not in out
+    # The source page has a createdBy.displayName — ensure it doesn't leak
+    assert "Alice" not in out
+
+
 def test_frontmatter_emits_empty_children_list_for_leaf_page():
     out = build_frontmatter(_page(), "https://confluence.example.com")
     assert "children: []" in out

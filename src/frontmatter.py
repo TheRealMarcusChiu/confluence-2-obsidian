@@ -16,10 +16,6 @@ def build_frontmatter(
     version = page.get("version", {})
     created = history.get("createdDate", "")
     modified = version.get("when", "")
-    author = (
-        history.get("createdBy", {}).get("displayName", "")
-        or version.get("by", {}).get("displayName", "")
-    )
 
     webui = page.get("_links", {}).get("webui", "")
     full_url = urljoin(confluence_base_url.rstrip('/') + '/', webui.lstrip('/')) if webui else ""
@@ -37,8 +33,6 @@ def build_frontmatter(
         lines.append(f"created: {created}")
     if modified:
         lines.append(f"modified: {modified}")
-    if author:
-        lines.append(f"author: {_yaml_quote(author)}")
     if full_url:
         lines.append(f"confluence_url: {full_url}")
     if labels:
