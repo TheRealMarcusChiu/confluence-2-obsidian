@@ -19,6 +19,18 @@ def test_frontmatter_does_not_emit_author():
     assert "Alice" not in out
 
 
+def test_frontmatter_does_not_emit_title():
+    out = build_frontmatter(_page(title="My Page"), "https://confluence.example.com")
+    assert "title:" not in out
+    assert "My Page" not in out
+
+
+def test_frontmatter_does_not_emit_confluence_url():
+    out = build_frontmatter(_page(), "https://confluence.example.com")
+    assert "confluence_url:" not in out
+    assert "confluence.example.com" not in out
+
+
 def test_frontmatter_emits_empty_children_list_for_leaf_page():
     out = build_frontmatter(_page(), "https://confluence.example.com")
     assert "children: []" in out
