@@ -134,9 +134,11 @@ class Converter:
         if name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
             return self._render_heading(tag, int(name[1]))
         if name in ('strong', 'b'):
-            return f"**{self._inline(tag)}**"
+            inner = self._render_children(tag)
+            return inner if not inner.strip() else f"<strong>{inner}</strong>"
         if name in ('em', 'i'):
-            return f"*{self._inline(tag)}*"
+            inner = self._render_children(tag)
+            return inner if not inner.strip() else f"<em>{inner}</em>"
         if name == 'u':
             return f"<u>{self._inline(tag)}</u>"
         if name in ('sub', 'sup'):

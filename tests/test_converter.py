@@ -38,7 +38,7 @@ def test_li_with_p_and_text_after_hoists_to_next_line():
 def test_li_with_p_and_strong_after_hoists():
     xml = '<ul><li><p class="auto-cursor-target">X</p><strong>Y</strong></li></ul>'
     out = convert(xml)
-    assert out == "- X\n**Y**"
+    assert out == "- X\n<strong>Y</strong>"
 
 
 def test_li_with_empty_p_then_inline_macro_keeps_macro_inline():
@@ -133,7 +133,46 @@ def test_plain_paragraph():
 
 
 def test_bold_and_italic():
-    assert convert("<p><strong>bold</strong> and <em>italic</em></p>") == "**bold** and *italic*"
+    assert convert("<p><strong>bold</strong> and <em>italic</em></p>") == "<strong>bold</strong> and <em>italic</em>"
+
+
+def test_strong_whitespace_only_unwraps():
+    assert convert("<p>hello world.<strong> </strong>snss</p>") == "hello world. snss"
+
+
+def test_em_whitespace_only_unwraps():
+    assert convert("<p>hello world.<em> </em>snss</p>") == "hello world. snss"
+
+
+def test_nested_strong_em_whitespace_only_unwraps_recursively():
+    assert convert("<p>hello world.<strong><em> </em></strong>snss</p>") == "hello world. snss"
+
+
+def test_strong_with_content_preserves_inner_whitespace():
+    out = convert("<p>hello<strong> world. </strong>snss</p>")
+    assert out == "hello<strong> world. </strong>snss"
+
+
+def test_em_with_content_preserves_inner_whitespace():
+    out = convert("<p>hello<em> world. </em>snss</p>")
+    assert out == "hello<em> world. </em>snss"
+
+
+def test_nested_strong_em_with_content_keeps_both_wrappers():
+    out = convert("<p>hello<strong><em> world. </em></strong>snss</p>")
+    assert out == "hello<strong><em> world. </em></strong>snss"
+
+
+def test_truly_empty_strong_unwraps_to_nothing():
+    assert convert("<p>a<strong></strong>b</p>") == "ab"
+
+
+def test_b_treated_as_strong():
+    assert convert("<p><b>bold</b></p>") == "<strong>bold</strong>"
+
+
+def test_i_treated_as_em():
+    assert convert("<p><i>italic</i></p>") == "<em>italic</em>"
 
 
 def test_h1_h2_h3_pass_through_unchanged():
@@ -331,12 +370,12 @@ def test_escape_applies_in_list_item():
 
 def test_escape_applies_inside_strong():
     out = convert("<p>before <strong>[bold]</strong> after</p>")
-    assert out == "before **\\[bold\\]** after"
+    assert out == "before <strong>\\[bold\\]</strong> after"
 
 
 def test_escape_applies_inside_em():
     out = convert("<p><em>[italic]</em></p>")
-    assert out == "*\\[italic\\]*"
+    assert out == "<em>\\[italic\\]</em>"
 
 
 def test_escape_applies_inside_u():
@@ -394,9 +433,9 @@ def test_pre_uncolored_span_unwraps_but_colored_becomes_font():
     assert out == '<code>plain <font style="color: red;">red</font></code>'
 
 
-def test_pre_strong_renders_as_literal_markdown():
+def test_pre_strong_renders_as_raw_html():
     out = convert("<pre><strong>foo</strong></pre>")
-    assert out == "<code>**foo**</code>"
+    assert out == "<code><strong>foo</strong></code>"
 
 
 def test_pre_empty_emits_nothing():
@@ -468,9 +507,9 @@ def test_escape_closer_no_escape_wins_over_outer_paragraph():
 
 def test_escape_brackets_only_when_anchor_anywhere_in_chain():
     # <strong> inside <a>: the <a> ancestor demotes the inner text to brackets-only mode,
-    # so [ ] are escaped but ** (strong) is preserved as inline formatting.
+    # so [ ] are escaped but the <strong> wrapper survives as raw HTML.
     out = convert('<p><a href="u"><strong>[link]</strong></a></p>')
-    assert "[**\\[link\\]**](u)" in out
+    assert "[<strong>\\[link\\]</strong>](u)" in out
 
 
 def test_escape_intraword_underscore_still_escapes():
@@ -582,7 +621,7 @@ def test_sup_preserved_as_raw_html():
 def test_sup_with_spaces_and_inline_markup():
     out = convert("<p>x<sup>n + 1</sup> and y<sub><strong>k</strong></sub></p>")
     assert "x<sup>n + 1</sup>" in out
-    assert "y<sub>**k**</sub>" in out
+    assert "y<sub><strong>k</strong></sub>" in out
 
 
 def test_inline_code_emitted_as_raw_html():
@@ -1211,7 +1250,7 @@ def test_macro_excerpt_preserves_markdown_inside_fence():
     xml = '<ac:structured-macro ac:name="excerpt"><ac:rich-text-body><p><strong>bold</strong> and <em>italic</em></p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
     assert "```excerpt" in out
-    assert "**bold** and *italic*" in out
+    assert "<strong>bold</strong> and <em>italic</em>" in out
     assert "```\n^excerpt" in out
 
 
