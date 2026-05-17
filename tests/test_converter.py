@@ -5,6 +5,54 @@ def convert(xml: str, page_name: str = "TestPage") -> str:
     return Converter(page_name).convert(xml).strip()
 
 
+def test_list_followed_by_macro_has_blank_line():
+    xml = '<ul><li>X</li></ul><ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro>'
+    out = convert(xml)
+    assert out == "- X\n\n> [!info]\n> note"
+
+
+def test_list_followed_by_latex_block_has_blank_line():
+    xml = '<ul><li>X</li></ul><ac:structured-macro ac:name="latex-block"><ac:plain-text-body><![CDATA[y]]></ac:plain-text-body></ac:structured-macro>'
+    out = convert(xml)
+    assert out == "- X\n\n$y$"
+
+
+def test_list_followed_by_heading_has_blank_line():
+    xml = "<ul><li>X</li></ul><h2>Title</h2>"
+    out = convert(xml)
+    assert out == "- X\n\n## Title"
+
+
+def test_nested_list_no_extra_blank_line_after_inner():
+    xml = "<ul><li>outer<ul><li>inner</li></ul></li></ul>"
+    out = convert(xml)
+    assert out == "- outer\n\t- inner"
+
+
+def test_li_with_p_and_text_after_hoists_to_next_line():
+    xml = '<ul><li><p class="auto-cursor-target">hello world</p>after-text</li></ul>'
+    out = convert(xml)
+    assert out == "- hello world\nafter-text"
+
+
+def test_li_with_p_and_strong_after_hoists():
+    xml = '<ul><li><p class="auto-cursor-target">X</p><strong>Y</strong></li></ul>'
+    out = convert(xml)
+    assert out == "- X\n**Y**"
+
+
+def test_li_with_only_p_no_hoist():
+    xml = '<ul><li><p>just paragraph</p></li></ul>'
+    out = convert(xml)
+    assert out == "- just paragraph"
+
+
+def test_li_with_p_followed_by_another_p_hoists_second():
+    xml = '<ul><li><p>first</p><p>second</p></li></ul>'
+    out = convert(xml)
+    assert out == "- first\nsecond"
+
+
 def test_inject_list_placeholders_indented_list_after_non_list_content():
     src = "ANY_NON_LIST_CONTENT\n\t- Hello"
     assert _inject_list_placeholders(src) == "ANY_NON_LIST_CONTENT\n- \n\t- Hello"

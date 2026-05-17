@@ -249,7 +249,7 @@ class Converter:
         return f"[{text}]({href})"
 
     def _render_list(self, tag: Tag, ordered: bool) -> str:
-        return '\n' + self._render_list_inner(tag, ordered, depth=0)
+        return '\n' + self._render_list_inner(tag, ordered, depth=0) + '\n\n'
 
     def _render_list_inner(self, tag: Tag, ordered: bool, depth: int) -> str:
         items = [c for c in tag.children if isinstance(c, Tag) and c.name == 'li']
@@ -260,13 +260,22 @@ class Converter:
             inline_parts = []
             block_parts = []
             nested = []
+            seen_first_p = False
             for child in item.children:
                 if isinstance(child, Tag) and child.name in ('ul', 'ol'):
                     nested.append((child.name == 'ol', child))
                     continue
+                is_p = isinstance(child, Tag) and child.name == 'p'
                 rendered = self._render(child)
                 stripped = rendered.strip()
-                if stripped and '\n' in stripped:
+                if is_p and not seen_first_p:
+                    if stripped:
+                        inline_parts.append(stripped)
+                    seen_first_p = True
+                elif seen_first_p:
+                    if stripped:
+                        block_parts.append(stripped)
+                elif stripped and '\n' in stripped:
                     block_parts.append(stripped)
                 else:
                     inline_parts.append(rendered)
