@@ -26,6 +26,42 @@ def _page(page_id, title, space="PROJ", ancestors=()):
     }
 
 
+def test_migrate_page_writes_parent_and_children_into_frontmatter(tmp_path):
+    resolver = PathResolver(tmp_path)
+    page = _page("42", "Architecture", ancestors=("Root",))
+    file_path, basename = resolver.resolve(page)
+    migrate_page(
+        page,
+        file_path,
+        basename,
+        FakeClient(),
+        resolver,
+        MigrationReport(),
+        "https://x",
+        download_attachments=False,
+        parent="Root",
+        children=["Module A", "Module B"],
+    )
+    content = file_path.read_text()
+    assert 'parent: "Root"' in content
+    assert "children:" in content
+    assert '  - "Module A"' in content
+    assert '  - "Module B"' in content
+
+
+def test_migrate_page_writes_empty_children_for_leaf(tmp_path):
+    resolver = PathResolver(tmp_path)
+    page = _page("1", "Leaf")
+    file_path, basename = resolver.resolve(page)
+    migrate_page(
+        page, file_path, basename, FakeClient(), resolver, MigrationReport(),
+        "https://x", download_attachments=False,
+    )
+    content = file_path.read_text()
+    assert "children: []" in content
+    assert "parent:" not in content
+
+
 def test_leaf_page_gets_empty_same_named_folder(tmp_path):
     resolver = PathResolver(tmp_path)
     page = _page("1", "Leaf")

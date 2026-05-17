@@ -5,7 +5,12 @@ def _yaml_quote(s: str) -> str:
     return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
-def build_frontmatter(page: dict, confluence_base_url: str) -> str:
+def build_frontmatter(
+    page: dict,
+    confluence_base_url: str,
+    parent: str | None = None,
+    children: list[str] | None = None,
+) -> str:
     title = page.get("title", "")
     history = page.get("history", {})
     version = page.get("version", {})
@@ -40,5 +45,13 @@ def build_frontmatter(page: dict, confluence_base_url: str) -> str:
         lines.append("tags:")
         for label in labels:
             lines.append(f"  - {label}")
+    if parent:
+        lines.append(f"parent: {_yaml_quote(parent)}")
+    if children:
+        lines.append("children:")
+        for child in children:
+            lines.append(f"  - {_yaml_quote(child)}")
+    else:
+        lines.append("children: []")
     lines.append("---")
     return "\n".join(lines) + "\n"

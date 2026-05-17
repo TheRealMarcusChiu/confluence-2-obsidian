@@ -44,6 +44,8 @@ def migrate_page(
     report: MigrationReport,
     confluence_url: str,
     download_attachments: bool,
+    parent: str | None = None,
+    children: list[str] | None = None,
 ):
     page_id = str(page.get("id", ""))
     title = page.get("title", "")
@@ -51,7 +53,7 @@ def migrate_page(
 
     converter = Converter(basename, title_map=resolver.title_map)
     markdown = converter.convert(storage)
-    frontmatter = build_frontmatter(page, confluence_url)
+    frontmatter = build_frontmatter(page, confluence_url, parent=parent, children=children)
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(frontmatter + markdown, encoding="utf-8")
@@ -107,10 +109,26 @@ def main():
     for title, page_id, name in resolver.collisions:
         report.record_collision(title, page_id, name)
 
+    id_to_basename = {str(page.get("id", "")): basename for page, _, basename in resolved}
+    children_by_parent_id: dict[str, list[str]] = {}
+    for page, _, basename in resolved:
+        ancestors = page.get("ancestors", []) or []
+        if not ancestors:
+            continue
+        parent_id = str(ancestors[-1].get("id", ""))
+        if parent_id in id_to_basename:
+            children_by_parent_id.setdefault(parent_id, []).append(basename)
+    for pid in children_by_parent_id:
+        children_by_parent_id[pid].sort()
+
     exit_code = 0
     try:
         for index, (page, file_path, basename) in enumerate(resolved, 1):
             title = page.get("title", "")
+            page_id = str(page.get("id", ""))
+            ancestors = page.get("ancestors", []) or []
+            parent_basename = id_to_basename.get(str(ancestors[-1].get("id", ""))) if ancestors else None
+            children = children_by_parent_id.get(page_id, [])
 
             print(f"[{index}/{total}] {title}")
             try:
@@ -123,6 +141,8 @@ def main():
                     report,
                     confluence_url,
                     download_attachments,
+                    parent=parent_basename,
+                    children=children,
                 )
                 report.pages_migrated += 1
             except Exception as e:
