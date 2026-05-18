@@ -530,8 +530,30 @@ def test_escape_angle_brackets_inside_anchor_link_text():
     assert "[X \\<Y\\>](u)" in out
 
 
-def test_escape_angle_brackets_suppressed_inside_code():
-    assert convert("<p>use <code>&lt;Y&gt;</code> here</p>") == "use <code><Y></code> here"
+def test_escape_angle_brackets_inside_code():
+    # Angle escape applies inside <code> (HTML parser would otherwise read <Y> as a tag).
+    # Other markdown metacharacters still NOT escaped inside <code>.
+    assert convert("<p>use <code>&lt;Y&gt;</code> here</p>") == "use <code>\\<Y\\></code> here"
+
+
+def test_escape_angle_brackets_inside_code_other_markdown_chars_not_escaped():
+    out = convert("<p>X <code>*foo* &lt;Y&gt;</code> Z</p>")
+    assert out == "X <code>*foo* \\<Y\\></code> Z"
+
+
+def test_escape_angle_brackets_inside_pre():
+    # <pre> renders as multi-<code> lines; angle escape applies inside each line.
+    out = convert("<pre>&lt;X&gt;</pre>")
+    assert out == "<code>\\<X\\></code>"
+
+
+def test_escape_angle_brackets_not_applied_in_code_macro_body():
+    # ac:plain-text-body becomes a fenced code block — no HTML parsing inside the
+    # fence, so <> stay literal (not escaped).
+    xml = '<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">py</ac:parameter><ac:plain-text-body><![CDATA[x = <Y>]]></ac:plain-text-body></ac:structured-macro>'
+    out = convert(xml)
+    assert "x = <Y>" in out
+    assert "\\<" not in out
 
 
 def test_escape_intraword_underscore_still_escapes():

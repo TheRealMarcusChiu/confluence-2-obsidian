@@ -7,10 +7,12 @@ from src.sanitize import normalize_filename_whitespace, sanitize_title
 CDATA_RE = re.compile(r'<!\[CDATA\[(.*?)\]\]>', re.DOTALL)
 PLAIN_TEXT_ESCAPE_RE = re.compile(r'([\\`*_~#\[\]$<>])')
 BRACKETS_ONLY_ESCAPE_RE = re.compile(r'([\[\]<>])')
+ANGLE_ONLY_ESCAPE_RE = re.compile(r'([<>])')
 ESCAPE_TRIGGER_TAGS = frozenset({'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
                                   'li', 'strong', 'em', 'u', 'sub', 'sup'})
 LINK_DISPLAY_TAGS = frozenset({'a', 'ac:link'})
-VERBATIM_TAGS = frozenset({'code', 'pre', 'ac:plain-text-body', 'ac:plain-text-link-body'})
+INLINE_HTML_CODE_TAGS = frozenset({'code', 'pre'})
+CDATA_VERBATIM_TAGS = frozenset({'ac:plain-text-body', 'ac:plain-text-link-body'})
 
 
 def _escape_html(text: str) -> str:
@@ -59,8 +61,10 @@ def _plain_text_escape_re(node):
         name = (parent.name or '').lower()
         if name in LINK_DISPLAY_TAGS:
             return BRACKETS_ONLY_ESCAPE_RE
-        if name in VERBATIM_TAGS:
+        if name in CDATA_VERBATIM_TAGS:
             return None
+        if name in INLINE_HTML_CODE_TAGS:
+            return ANGLE_ONLY_ESCAPE_RE
         if name == 'span':
             style = parent.attrs.get('style', '') or ''
             if 'color:' in style:
@@ -209,7 +213,7 @@ class Converter:
         parts = []
         for child in tag.children:
             if isinstance(child, NavigableString):
-                parts.append(str(child))
+                parts.append(ANGLE_ONLY_ESCAPE_RE.sub(r'\\\1', str(child)))
             elif isinstance(child, Tag):
                 parts.append(self._render(child))
         lines = ''.join(parts).split('\n')
