@@ -1837,6 +1837,41 @@ def test_spacing_pure_whitespace_text_between_blocks_ignored():
     assert out == "# A\n## B"
 
 
+def test_p_with_only_code_child_is_unwrapped():
+    out = convert("<p><code>TEXT</code></p>")
+    assert out == "<code>TEXT</code>"
+
+
+def test_p_with_only_colored_span_child_is_unwrapped():
+    out = convert('<p><span style="color: red;">X</span></p>')
+    assert out == '<font style="color: red;">X</font>'
+
+
+def test_p_with_text_and_code_keeps_paragraph_wrapping():
+    out = convert("<p>OUTSIDE<code>TEXT</code>OUTSIDE</p>")
+    assert out == "OUTSIDE<code>TEXT</code>OUTSIDE"
+
+
+def test_p_with_only_strong_child_is_unwrapped():
+    out = convert("<p><strong>bold</strong></p>")
+    assert out == "<strong>bold</strong>"
+
+
+def test_p_with_only_anchor_child_is_unwrapped():
+    out = convert('<p><a href="https://x.com">link</a></p>')
+    assert out == "[link](https://x.com)"
+
+
+def test_unwrapped_p_glues_to_preceding_content_but_following_p_keeps_break():
+    # The unwrap drops the unwrapped-<p>'s OWN paragraph spacing — surrounding
+    # <p>s still emit their leading "\n\n". So "before" + unwrapped <p> glue,
+    # but the following <p> still starts a new paragraph block.
+    out = convert(
+        "<p>before</p><p><code>X</code></p><p>after</p>"
+    )
+    assert out == "before<code>X</code>\n\nafter"
+
+
 def test_spacing_blank_line_after_top_level_table_before_heading():
     xml = "<table><tbody><tr><td>x</td></tr></tbody></table><h1>Next</h1>"
     out = convert(xml)

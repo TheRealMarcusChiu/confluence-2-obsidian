@@ -134,8 +134,7 @@ class Converter:
         name = (tag.name or '').lower()
 
         if name == 'p':
-            macro_only = self._is_macro_only_paragraph(tag)
-            if macro_only:
+            if self._is_tag_only_paragraph(tag):
                 return ''.join(self._render(c) for c in tag.children)
             inner = self._render_children(tag).strip()
             if not inner or all(c in ' \t\n\\' for c in inner):
@@ -237,20 +236,17 @@ class Converter:
             return ''
         return '<br>'.join(f'<code>{line}</code>' for line in lines)
 
-    def _is_macro_only_paragraph(self, tag: Tag) -> bool:
-        macros = []
+    def _is_tag_only_paragraph(self, tag: Tag) -> bool:
+        has_meaningful_tag = False
         for child in tag.children:
             if isinstance(child, NavigableString):
                 if str(child).strip():
                     return False
             elif isinstance(child, Tag):
-                if child.name == 'ac:structured-macro':
-                    macros.append(child)
-                elif child.name == 'br':
+                if child.name == 'br':
                     continue
-                else:
-                    return False
-        return len(macros) >= 1
+                has_meaningful_tag = True
+        return has_meaningful_tag
 
     def _render_a(self, tag: Tag) -> str:
         href = tag.attrs.get('href', '')
