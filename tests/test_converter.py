@@ -512,6 +512,28 @@ def test_escape_brackets_only_when_anchor_anywhere_in_chain():
     assert "[<strong>\\[link\\]</strong>](u)" in out
 
 
+def test_escape_angle_brackets_in_paragraph():
+    assert convert("<p>&lt;&gt;</p>") == "\\<\\>"
+
+
+def test_escape_angle_brackets_in_heading():
+    assert convert("<h2>Section &lt;X&gt;</h2>") == "## Section \\<X\\>"
+
+
+def test_escape_angle_brackets_in_list_item():
+    out = convert("<ul><li>&lt;item&gt;</li></ul>").strip()
+    assert out == "- \\<item\\>"
+
+
+def test_escape_angle_brackets_inside_anchor_link_text():
+    out = convert('<p><a href="u">X &lt;Y&gt;</a></p>')
+    assert "[X \\<Y\\>](u)" in out
+
+
+def test_escape_angle_brackets_suppressed_inside_code():
+    assert convert("<p>use <code>&lt;Y&gt;</code> here</p>") == "use <code><Y></code> here"
+
+
 def test_escape_intraword_underscore_still_escapes():
     # Per docs: simplicity over precision — escape every _, even intraword.
     assert convert("<p>foo_bar_baz</p>") == "foo\\_bar\\_baz"

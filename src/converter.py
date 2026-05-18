@@ -5,8 +5,8 @@ from src.sanitize import normalize_filename_whitespace, sanitize_title
 
 
 CDATA_RE = re.compile(r'<!\[CDATA\[(.*?)\]\]>', re.DOTALL)
-PLAIN_TEXT_ESCAPE_RE = re.compile(r'([\\`*_~#\[\]$])')
-BRACKETS_ONLY_ESCAPE_RE = re.compile(r'([\[\]])')
+PLAIN_TEXT_ESCAPE_RE = re.compile(r'([\\`*_~#\[\]$<>])')
+BRACKETS_ONLY_ESCAPE_RE = re.compile(r'([\[\]<>])')
 ESCAPE_TRIGGER_TAGS = frozenset({'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
                                   'li', 'strong', 'em', 'u', 'sub', 'sup'})
 LINK_DISPLAY_TAGS = frozenset({'a', 'ac:link'})
