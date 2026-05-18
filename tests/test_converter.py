@@ -649,6 +649,45 @@ def test_colored_inline_code_composes():
     assert convert(xml) == '<code><font style="color: rgb(128,128,128);">CODE</font></code>'
 
 
+def test_colored_span_wrapping_children_macro_drops_font_wrapper():
+    # A colored <span> wrapping a block-emitting macro is meaningless —
+    # the <font> tag can't color a dataview/code/callout block. Drop it.
+    xml = '<p><span style="color: rgb(51,51,51);"><ac:structured-macro ac:name="children"/></span></p>'
+    out = convert(xml)
+    assert "<font" not in out
+    assert "```dataview" in out
+
+
+def test_nested_colored_spans_wrapping_children_macro_unwrap_recursively():
+    xml = (
+        '<p><span style="color: rgb(51,51,51);">'
+        '<span style="color: rgb(88,88,88);">'
+        '<ac:structured-macro ac:name="children"/>'
+        '</span></span></p>'
+    )
+    out = convert(xml)
+    assert "<font" not in out
+    assert "```dataview" in out
+
+
+def test_colored_span_wrapping_code_macro_drops_font_wrapper():
+    xml = (
+        '<span style="color: red;"><ac:structured-macro ac:name="code">'
+        '<ac:parameter ac:name="language">py</ac:parameter>'
+        '<ac:plain-text-body><![CDATA[x = 1]]></ac:plain-text-body>'
+        '</ac:structured-macro></span>'
+    )
+    out = convert(xml)
+    assert "<font" not in out
+    assert "```py" in out
+
+
+def test_colored_span_wrapping_inline_text_keeps_font_wrapper():
+    # Regression: inline (single-line) content still gets the <font> wrapper.
+    out = convert('<p><span style="color: red;">hello</span></p>')
+    assert out == '<font style="color: red;">hello</font>'
+
+
 def test_colored_span_preserves_trailing_whitespace_in_content():
     # Confluence syntax-highlighted code wraps tokens in <span style="color:...">
     # — trailing space inside a span MUST survive so tokens don't glue together.

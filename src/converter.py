@@ -163,7 +163,10 @@ class Converter:
                 sole_code = self._sole_code_child(tag)
                 if sole_code is not None:
                     return f'<code><font style="{style}">{self._render_children(sole_code)}</font></code>'
-                return f'<font style="{style}">{self._render_children(tag)}</font>'
+                inner = self._render_children(tag)
+                if '\n' in inner.strip():
+                    return inner
+                return f'<font style="{style}">{inner}</font>'
             return self._render_children(tag)
         if name == 'hr':
             return '\n---'
