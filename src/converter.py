@@ -275,12 +275,6 @@ class Converter:
         indent = '\t' * depth
         for i, item in enumerate(items):
             marker = f"{i+1}." if ordered else "-"
-            if self._li_contains_only_children_macro(item):
-                children_macro = self._find_children_macro_child(item)
-                rendered = self._render(children_macro).strip()
-                if rendered:
-                    lines.append(rendered)
-                continue
             inline_parts = []
             block_parts = []
             nested = []
@@ -303,49 +297,22 @@ class Converter:
                 else:
                     inline_parts.append(rendered)
             body = ''.join(inline_parts).strip().replace('\n', ' ')
-            item_line = f"{indent}{marker} {body}"
-            if block_parts:
+            if not body and block_parts:
                 self.warnings.append(
                     f"list item with block content (hoisted to column 0) on page '{self.page_name}'"
                 )
-                item_line += '\n' + '\n\n'.join(block_parts)
-            lines.append(item_line)
+                lines.append('\n\n'.join(block_parts))
+            else:
+                item_line = f"{indent}{marker} {body}"
+                if block_parts:
+                    self.warnings.append(
+                        f"list item with block content (hoisted to column 0) on page '{self.page_name}'"
+                    )
+                    item_line += '\n' + '\n\n'.join(block_parts)
+                lines.append(item_line)
             for sub_ordered, sub in nested:
                 lines.append(self._render_list_inner(sub, sub_ordered, depth + 1))
         return '\n'.join(lines)
-
-    def _li_contains_only_children_macro(self, item: Tag) -> bool:
-        return self._find_children_macro_child(item) is not None
-
-    def _find_children_macro_child(self, item: Tag) -> Tag | None:
-        found = None
-        for child in item.children:
-            if isinstance(child, NavigableString):
-                if str(child).strip():
-                    return None
-                continue
-            if isinstance(child, Tag):
-                if child.name == 'br':
-                    continue
-                inner = child
-                while inner.name == 'p' and self._is_tag_only_paragraph(inner):
-                    inner_children = [
-                        c for c in inner.children
-                        if isinstance(c, Tag) and c.name != 'br'
-                    ]
-                    if len(inner_children) != 1:
-                        break
-                    inner = inner_children[0]
-                if (
-                    inner.name == 'ac:structured-macro'
-                    and inner.attrs.get('ac:name') == 'children'
-                ):
-                    if found is not None:
-                        return None
-                    found = inner
-                else:
-                    return None
-        return found
 
     def _render_blockquote(self, tag: Tag) -> str:
         inner = self._render_children(tag).strip()
@@ -797,7 +764,14 @@ class Converter:
                 size = f"|{width}"
             else:
                 size = ""
-            return f"![[{self.page_name}/{filename}{size}]]"
+            wikilink = f"![[{self.page_name}/{filename}{size}]]"
+            if self._has_li_ancestor(tag):
+                return (
+                    '\n> [!list-indent-undo]\n'
+                    '> > [!indent]\n'
+                    f'> > {wikilink}\n\n'
+                )
+            return wikilink
         url = tag.find('ri:url')
         if url is not None:
             return f"![]({url.attrs.get('ri:value', '')})"

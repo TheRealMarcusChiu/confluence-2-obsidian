@@ -271,7 +271,9 @@ def test_list_item_with_multiple_blocks_separated_by_blank_line():
     assert out == expected
 
 
-def test_list_item_with_only_expand_no_inline_text():
+def test_list_item_with_only_expand_drops_marker():
+    # Empty <li> with only block content → marker line dropped entirely;
+    # the hoisted block is the sole output for that <li>.
     xml = (
         '<ul><li>'
         '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter>'
@@ -280,14 +282,13 @@ def test_list_item_with_only_expand_no_inline_text():
     )
     out = convert(xml).strip()
     expected = (
-        "- \n"
         "> [!expand]- T\n"
         "> body"
     )
     assert out == expected
 
 
-def test_ordered_list_empty_item_with_block_content_keeps_marker_space():
+def test_ordered_list_empty_item_with_block_content_drops_marker():
     xml = (
         '<ol><li>'
         '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter>'
@@ -296,7 +297,6 @@ def test_ordered_list_empty_item_with_block_content_keeps_marker_space():
     )
     out = convert(xml).strip()
     expected = (
-        "1. \n"
         "> [!expand]- T\n"
         "> body"
     )
@@ -1448,6 +1448,57 @@ def test_internal_page_link_no_body():
     xml = '<ac:link><ri:page ri:content-title="Other Page" /></ac:link>'
     out = convert(xml)
     assert out == "[[Other Page]]"
+
+
+def test_image_inside_li_wraps_in_double_callout_and_hoists():
+    # Image inside <li> → 2-level callout wrap, hoisted to column 0.
+    # Text content of the <li> stays on the marker line.
+    xml = (
+        '<ul><li>TWO<br/>'
+        '<ac:image ac:width="301"><ri:attachment ri:filename="linear-chain-crf.png"/></ac:image>'
+        '</li></ul>'
+    )
+    out = convert(xml, page_name="15 TODO")
+    expected = (
+        "- TWO\n"
+        "> [!list-indent-undo]\n"
+        "> > [!indent]\n"
+        "> > ![[15 TODO/linear-chain-crf.png|301]]"
+    )
+    assert expected in out
+
+
+def test_image_outside_list_no_callout_wrap():
+    # Image at document level (no <li> ancestor) → no callout wrap, just the
+    # bare wiki-link with the existing block-spacing rules around it.
+    xml = (
+        '<ul><li>TWO</li></ul>'
+        '<p><ac:image ac:width="301"><ri:attachment ri:filename="linear-chain-crf.png"/></ac:image></p>'
+    )
+    out = convert(xml, page_name="15 TODO")
+    expected = "- TWO\n\n![[15 TODO/linear-chain-crf.png|301]]"
+    assert expected in out
+    assert "[!list-indent-undo]" not in out
+
+
+def test_li_with_only_image_drops_marker():
+    # An <li> whose only content is an image → marker line dropped, just the
+    # callout-wrapped image emitted.
+    xml = (
+        '<ul><li>OUTER</li>'
+        '<li><ac:image ac:width="200"><ri:attachment ri:filename="img.png"/></ac:image></li>'
+        '</ul>'
+    )
+    out = convert(xml, page_name="P")
+    expected = (
+        "- OUTER\n"
+        "> [!list-indent-undo]\n"
+        "> > [!indent]\n"
+        "> > ![[P/img.png|200]]"
+    )
+    assert expected in out
+    # No empty "- " line for the second <li>.
+    assert "OUTER\n- \n>" not in out
 
 
 def test_inline_image_attachment():
