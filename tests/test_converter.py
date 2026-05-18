@@ -418,14 +418,16 @@ def test_escape_suppressed_inside_pre():
     assert "\\[" not in out
 
 
-def test_pre_in_table_cell_stays_raw_html_and_logs_warning():
+def test_pre_in_table_cell_transforms_to_multi_code_with_br():
+    # <pre> inside a cell now gets the same multi-<code>-with-<br> rendering as
+    # at document level — no more raw <pre> pass-through, no warning logged.
     from src.converter import Converter
-    xml = "<table><tr><td><pre>x</pre></td></tr></table>"
+    xml = "<table><tr><td><pre>Hello<br/>World</pre></td></tr></table>"
     c = Converter("MyPage")
-    out = c.convert(xml).strip()
-    assert "<pre>x</pre>" in out
-    assert "<code>x</code>" not in out
-    assert any("pre" in w.lower() and "MyPage" in w for w in c.warnings)
+    out = c.convert(xml)
+    assert "<code>Hello</code><br><code>World</code>" in out
+    assert "<pre>" not in out
+    assert not any("<pre>" in w for w in c.warnings)
 
 
 def test_pre_uncolored_span_unwraps_but_colored_becomes_font():
@@ -443,9 +445,15 @@ def test_pre_empty_emits_nothing():
     assert convert("<pre>  \n  </pre>") == ""
 
 
+def test_pre_user_example_br_separator():
+    # Per spec: <pre>Hello<br/>World</pre> → <code>Hello</code><br><code>World</code>
+    out = convert("<pre>Hello<br/>World</pre>")
+    assert out == "<code>Hello</code><br><code>World</code>"
+
+
 def test_pre_splits_on_br_and_newline():
     out = convert("<pre>a<br/>b\nc</pre>")
-    assert out == "<code>a</code>\n<code>b</code>\n<code>c</code>"
+    assert out == "<code>a</code><br><code>b</code><br><code>c</code>"
 
 
 def test_pre_drops_trailing_empty_lines():
@@ -455,7 +463,7 @@ def test_pre_drops_trailing_empty_lines():
 
 def test_pre_keeps_internal_empty_lines():
     out = convert("<pre>foo\n\nbar</pre>")
-    assert out == "<code>foo</code>\n<code></code>\n<code>bar</code>"
+    assert out == "<code>foo</code><br><code></code><br><code>bar</code>"
 
 
 def test_pre_emits_multi_code_one_per_line():
@@ -477,9 +485,9 @@ def test_pre_emits_multi_code_one_per_line():
         '<font style="color: rgb(0,0,255);">/index.html</font> '
         '<font style="color: rgb(0,128,0);">HTTP</font>'
         '<font style="color: rgb(102,102,102);">/</font>'
-        '<font style="color: rgb(102,102,102);">1.1</font></code>\n'
+        '<font style="color: rgb(102,102,102);">1.1</font></code><br>'
         '<code><font style="color: rgb(125,144,41);">Host</font>'
-        '<font style="color: rgb(102,102,102);">:</font> www.example.org</code>\n'
+        '<font style="color: rgb(102,102,102);">:</font> www.example.org</code><br>'
         '<code>...</code>'
     )
     assert convert(xml) == expected

@@ -210,6 +210,10 @@ class Converter:
         return code
 
     def _render_pre(self, tag: Tag) -> str:
+        body = self._render_pre_body(tag)
+        return f'\n{body}' if body else ''
+
+    def _render_pre_body(self, tag: Tag) -> str:
         parts = []
         for child in tag.children:
             if isinstance(child, NavigableString):
@@ -223,7 +227,7 @@ class Converter:
             lines.pop()
         if not lines:
             return ''
-        return '\n' + '\n'.join(f'<code>{line}</code>' for line in lines)
+        return '<br>'.join(f'<code>{line}</code>' for line in lines)
 
     def _is_macro_only_paragraph(self, tag: Tag) -> bool:
         macros = []
@@ -390,9 +394,7 @@ class Converter:
 
     def _render_cell_node(self, tag: Tag, depth: int) -> str:
         if tag.name == 'pre':
-            self.warnings.append(
-                f"<pre> inside table cell (kept as raw HTML) on page '{self.page_name}'"
-            )
+            return self._render_pre_body(tag)
         if tag.name == 'ac:link':
             return self._extract_ac_link_text(tag)
         if tag.name == 'ac:image':
