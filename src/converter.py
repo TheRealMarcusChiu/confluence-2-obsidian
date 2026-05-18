@@ -28,6 +28,10 @@ _OL_RESTART_RE = re.compile(r'((\t*)\d+\. [^\n]*)\n+\2(1\. )')
 _TABLE_BLANK_BEFORE_PLAIN_RE = re.compile(
     r'(</table>)\n\n(?!(?:[#>`^<]|- |\d+\. ))'
 )
+_LIST_BLANK_BEFORE_QUOTE_RE = re.compile(
+    r'(^\t*(?:- |\d+\. )[^\n]*)\n\n(>)',
+    re.MULTILINE,
+)
 
 
 def _break_adjacent_ordered_lists(text: str) -> str:
@@ -36,6 +40,10 @@ def _break_adjacent_ordered_lists(text: str) -> str:
 
 def _collapse_blank_after_table_before_plain_text(text: str) -> str:
     return _TABLE_BLANK_BEFORE_PLAIN_RE.sub(r'\1\n', text)
+
+
+def _collapse_blank_between_list_and_quote(text: str) -> str:
+    return _LIST_BLANK_BEFORE_QUOTE_RE.sub(r'\1\n\2', text)
 
 
 def _inject_list_placeholders(text: str) -> str:
@@ -107,6 +115,7 @@ class Converter:
         text = _inject_list_placeholders(text)
         text = _break_adjacent_ordered_lists(text)
         text = _collapse_blank_after_table_before_plain_text(text)
+        text = _collapse_blank_between_list_and_quote(text)
         return text.strip() + '\n'
 
     def _render(self, node) -> str:

@@ -5,10 +5,11 @@ def convert(xml: str, page_name: str = "TestPage") -> str:
     return Converter(page_name).convert(xml).strip()
 
 
-def test_list_followed_by_macro_has_blank_line():
+def test_list_followed_by_callout_has_no_blank_line():
+    # Trailing blank after list is collapsed when next block starts with >.
     xml = '<ul><li>X</li></ul><ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert out == "- X\n\n> [!info]\n> note"
+    assert out == "- X\n> [!info]\n> note"
 
 
 def test_list_followed_by_latex_block_has_blank_line():
@@ -92,7 +93,9 @@ def test_adjacent_ordered_lists_with_cursor_park_break_inserts_blockquote_separa
         '<p><br /></p>'
         '<ol><li>HELLO</li><li>WORLD</li></ol>'
     )
-    assert convert(xml) == "1. HELLO\n2. WORLD\n\n> \n\n1. HELLO\n2. WORLD"
+    # The list→quote collapse removes the blank line BEFORE the separator's `> `;
+    # the trailing blank+next-list pair is preserved.
+    assert convert(xml) == "1. HELLO\n2. WORLD\n> \n\n1. HELLO\n2. WORLD"
 
 
 def test_single_ordered_list_does_not_get_blockquote_separator():
@@ -1310,9 +1313,8 @@ def test_macro_children_display():
 
 def test_macro_children_outside_list_single_wrap():
     # Case 1 — Children macro after </ul> at document level (no <li> ancestor)
-    # → single-level [!list-indent-undo] callout. The blank line between the
-    # list and the callout is from the existing "trailing blank line after
-    # top-level list" rule (block-spacing exception #4).
+    # → single-level [!list-indent-undo] callout. The trailing blank line
+    # after the list is collapsed when the next line starts with > (callout).
     xml = (
         '<ul><li>ROOT</li></ul>'
         '<p><ac:structured-macro ac:name="children" /></p>'
@@ -1320,7 +1322,6 @@ def test_macro_children_outside_list_single_wrap():
     out = convert(xml)
     expected = (
         "- ROOT\n"
-        "\n"
         "> [!list-indent-undo]\n"
         "> ```dataview\n"
         "> LIST\n"
