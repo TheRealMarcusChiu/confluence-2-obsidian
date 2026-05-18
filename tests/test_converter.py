@@ -879,9 +879,12 @@ def test_table_data_highlight_colour_other_than_grey_passes_through():
 
 
 def test_table_cell_with_ac_link_no_body_uses_page_title():
+    # <p><ac:link/></p> is Tag-only — the wrapping <p> is stripped, the
+    # ac:link renders as plain text directly inside the cell.
     xml = '<table><tbody><tr><td><p><ac:link><ri:page ri:space-key="NOT" ri:content-title="Samsung" /></ac:link></p></td></tr></tbody></table>'
     out = convert(xml)
-    assert "<p>Samsung</p>" in out
+    assert "<td>Samsung</td>" in out
+    assert "<p>" not in out
     assert "ac:link" not in out
     assert "ri:page" not in out
 
@@ -889,7 +892,8 @@ def test_table_cell_with_ac_link_no_body_uses_page_title():
 def test_table_cell_with_ac_link_with_body_uses_alt_text():
     xml = '<table><tbody><tr><td><p><ac:link><ri:page ri:space-key="NOT" ri:content-title="Samsung" /><ac:plain-text-link-body><![CDATA[ALT_TEXT]]></ac:plain-text-link-body></ac:link></p></td></tr></tbody></table>'
     out = convert(xml)
-    assert "<p>ALT_TEXT</p>" in out
+    assert "<td>ALT_TEXT</td>" in out
+    assert "<p>" not in out
     assert "Samsung" not in out
 
 
@@ -1835,6 +1839,31 @@ def test_spacing_pure_whitespace_text_between_blocks_ignored():
     xml = "<h1>A</h1>\n\n\n<h2>B</h2>"
     out = convert(xml)
     assert out == "# A\n## B"
+
+
+def test_cell_p_with_only_code_child_is_unwrapped():
+    xml = (
+        '<table><tbody><tr><td>'
+        '<p><code><span style="color: rgb(0,0,255);">S</span>'
+        '<span style="color: rgb(51,153,102);">EEEEEEE E</span>'
+        '<span style="color: rgb(255,0,0);">FFFFFFF FFFFFFFF FFFFFFFF</span></code></p>'
+        '</td></tr></tbody></table>'
+    )
+    out = convert(xml)
+    assert (
+        '<td><code><span style="color: rgb(0,0,255);">S</span>'
+        '<span style="color: rgb(51,153,102);">EEEEEEE E</span>'
+        '<span style="color: rgb(255,0,0);">FFFFFFF FFFFFFFF FFFFFFFF</span></code></td>'
+        in out
+    )
+    assert "<p>" not in out
+
+
+def test_cell_p_with_text_and_code_keeps_paragraph_wrap():
+    # Direct text inside <p> blocks the unwrap — paragraph survives in the cell.
+    xml = '<table><tbody><tr><td><p>before<code>X</code>after</p></td></tr></tbody></table>'
+    out = convert(xml)
+    assert "<td><p>before<code>X</code>after</p></td>" in out
 
 
 def test_p_with_only_code_child_is_unwrapped():

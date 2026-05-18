@@ -435,24 +435,9 @@ class Converter:
     def _cell_wrapper_should_strip(self, tag: Tag) -> bool:
         if tag.name == 'div' and 'content-wrapper' in (tag.attrs.get('class') or []):
             return True
-        if tag.name == 'p' and self._p_has_only_escaped_ac_macros(tag):
+        if tag.name == 'p' and self._is_tag_only_paragraph(tag):
             return True
         return False
-
-    def _p_has_only_escaped_ac_macros(self, p: Tag) -> bool:
-        has_macro = False
-        for child in p.children:
-            if isinstance(child, NavigableString):
-                if str(child).strip():
-                    return False
-            elif isinstance(child, Tag):
-                if child.name == 'br':
-                    continue
-                name = child.name or ''
-                if not name.startswith('ac:') or name == 'ac:link':
-                    return False
-                has_macro = True
-        return has_macro
 
     def _render_cell_latex(self, tag: Tag) -> str | None:
         macro_name = tag.attrs.get('ac:name', '')
