@@ -1308,6 +1308,81 @@ def test_macro_children_display():
     assert 'WHERE file.folder = this.file.folder + "/" + this.file.name' in out
 
 
+def test_macro_children_outside_list_single_wrap():
+    # Case 1 — Children macro after </ul> at document level (no <li> ancestor)
+    # → single-level [!list-indent-undo] callout. The blank line between the
+    # list and the callout is from the existing "trailing blank line after
+    # top-level list" rule (block-spacing exception #4).
+    xml = (
+        '<ul><li>ROOT</li></ul>'
+        '<p><ac:structured-macro ac:name="children" /></p>'
+    )
+    out = convert(xml)
+    expected = (
+        "- ROOT\n"
+        "\n"
+        "> [!list-indent-undo]\n"
+        "> ```dataview\n"
+        "> LIST\n"
+        '> FROM ""\n'
+        '> WHERE file.folder = this.file.folder + "/" + this.file.name\n'
+        "> ```"
+    )
+    assert expected in out
+
+
+def test_macro_children_inside_li_double_wrap_and_marker_dropped():
+    # Case 2 — Children macro IS the entire <li> content. Two-level wrap,
+    # and the empty list marker line is dropped (no orphan "- " above the callout).
+    xml = (
+        '<ul>'
+        '<li>TWO</li>'
+        '<li><ac:structured-macro ac:name="children" /></li>'
+        '</ul>'
+    )
+    out = convert(xml)
+    expected = (
+        "- TWO\n"
+        "> [!list-indent-undo]\n"
+        "> > [!indent]\n"
+        "> > ```dataview\n"
+        "> > LIST\n"
+        '> > FROM ""\n'
+        '> > WHERE file.folder = this.file.folder + "/" + this.file.name\n'
+        "> > ```"
+    )
+    assert expected in out
+    # The empty <li>'s marker is dropped — no orphan "- " line between TWO and the callout.
+    assert "TWO\n- \n>" not in out
+    assert "TWO\n-\n>" not in out
+
+
+def test_macro_children_inside_nested_li_double_wrap():
+    # Case 3 — Children macro inside a nested <li> at depth > 0. Still 2 wraps;
+    # the callout sits at column 0 regardless of source nesting depth.
+    xml = (
+        '<ul><li>ROOT'
+        '<ul>'
+        '<li>ROOTTWO</li>'
+        '<li><ac:structured-macro ac:name="children" /></li>'
+        '</ul>'
+        '</li></ul>'
+    )
+    out = convert(xml)
+    expected = (
+        "- ROOT\n"
+        "\t- ROOTTWO\n"
+        "> [!list-indent-undo]\n"
+        "> > [!indent]\n"
+        "> > ```dataview\n"
+        "> > LIST\n"
+        '> > FROM ""\n'
+        '> > WHERE file.folder = this.file.folder + "/" + this.file.name\n'
+        "> > ```"
+    )
+    assert expected in out
+
+
 def test_macro_children_with_page_param_in_title_map():
     xml = '<ac:structured-macro ac:name="children"><ac:parameter ac:name="page"><ac:link><ri:page ri:content-title="Computer" /></ac:link></ac:parameter></ac:structured-macro>'
     c = Converter("p", title_map={"Computer": "Computer"})
@@ -1832,7 +1907,9 @@ def test_spacing_blank_line_between_paragraphs():
 def test_spacing_paragraph_wrapping_only_macro_is_unwrapped():
     xml = '<h1>Subpages</h1>\n<p><ac:structured-macro ac:name="children" /></p>'
     out = convert(xml)
-    assert out.startswith("# Subpages\n```dataview")
+    # The wrapping <p> is unwrapped; the children macro renders with its
+    # standard single-level callout wrap (no <li> ancestor in source).
+    assert out.startswith("# Subpages\n> [!list-indent-undo]\n> ```dataview")
 
 
 def test_spacing_pure_whitespace_text_between_blocks_ignored():

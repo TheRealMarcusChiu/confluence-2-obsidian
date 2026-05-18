@@ -266,6 +266,12 @@ class Converter:
         indent = '\t' * depth
         for i, item in enumerate(items):
             marker = f"{i+1}." if ordered else "-"
+            if self._li_contains_only_children_macro(item):
+                children_macro = self._find_children_macro_child(item)
+                rendered = self._render(children_macro).strip()
+                if rendered:
+                    lines.append(rendered)
+                continue
             inline_parts = []
             block_parts = []
             nested = []
@@ -298,6 +304,39 @@ class Converter:
             for sub_ordered, sub in nested:
                 lines.append(self._render_list_inner(sub, sub_ordered, depth + 1))
         return '\n'.join(lines)
+
+    def _li_contains_only_children_macro(self, item: Tag) -> bool:
+        return self._find_children_macro_child(item) is not None
+
+    def _find_children_macro_child(self, item: Tag) -> Tag | None:
+        found = None
+        for child in item.children:
+            if isinstance(child, NavigableString):
+                if str(child).strip():
+                    return None
+                continue
+            if isinstance(child, Tag):
+                if child.name == 'br':
+                    continue
+                inner = child
+                while inner.name == 'p' and self._is_tag_only_paragraph(inner):
+                    inner_children = [
+                        c for c in inner.children
+                        if isinstance(c, Tag) and c.name != 'br'
+                    ]
+                    if len(inner_children) != 1:
+                        break
+                    inner = inner_children[0]
+                if (
+                    inner.name == 'ac:structured-macro'
+                    and inner.attrs.get('ac:name') == 'children'
+                ):
+                    if found is not None:
+                        return None
+                    found = inner
+                else:
+                    return None
+        return found
 
     def _render_blockquote(self, tag: Tag) -> str:
         inner = self._render_children(tag).strip()
@@ -541,30 +580,44 @@ class Converter:
         return ''
 
     def _render_children_macro(self, tag: Tag) -> str:
+        inside_li = self._has_li_ancestor(tag)
         page_param = tag.find('ac:parameter', attrs={'ac:name': 'page'})
         if page_param is None:
-            return self._dataview_children('this')
+            return self._dataview_children('this', inside_li)
         ri_page = page_param.find('ri:page')
         title = ri_page.attrs.get('ri:content-title', '') if ri_page is not None else ''
         if not title:
-            return self._dataview_children('this')
+            return self._dataview_children('this', inside_li)
         if title not in self.title_map:
             self.warnings.append(f"children macro references unmigrated page: {title}")
             return ''
-        return self._dataview_children(self.title_map[title])
+        return self._dataview_children(self.title_map[title], inside_li)
 
-    def _dataview_children(self, target: str) -> str:
+    def _has_li_ancestor(self, tag: Tag) -> bool:
+        parent = tag.parent
+        while parent is not None:
+            if (parent.name or '').lower() == 'li':
+                return True
+            parent = parent.parent
+        return False
+
+    def _dataview_children(self, target: str, inside_li: bool) -> str:
         if target == 'this':
             scope = 'this.file.folder + "/" + this.file.name'
         else:
             scope = f'[[{target}]].file.folder + "/" + [[{target}]].file.name'
-        return (
-            '\n```dataview\n'
-            'LIST\n'
-            'FROM ""\n'
-            f'WHERE file.folder = {scope}\n'
-            '```'
-        )
+        body = [
+            '```dataview',
+            'LIST',
+            'FROM ""',
+            f'WHERE file.folder = {scope}',
+            '```',
+        ]
+        if inside_li:
+            wrapped = ['> [!list-indent-undo]', '> > [!indent]'] + [f'> > {line}' for line in body]
+        else:
+            wrapped = ['> [!list-indent-undo]'] + [f'> {line}' for line in body]
+        return '\n' + '\n'.join(wrapped) + '\n\n'
 
     def _render_excerpt(self, tag: Tag) -> str:
         body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
