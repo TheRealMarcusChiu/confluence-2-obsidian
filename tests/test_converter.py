@@ -1858,11 +1858,25 @@ def test_spacing_blank_line_between_two_top_level_tables():
     assert "</table>\n\n<table>" in out
 
 
-def test_spacing_top_level_table_before_paragraph_one_blank_line_only():
+def test_spacing_top_level_table_before_paragraph_no_blank_line():
     xml = "<table><tbody><tr><td>x</td></tr></tbody></table><p>after</p>"
     out = convert(xml)
-    assert "</table>\n\nafter" in out
-    assert "</table>\n\n\nafter" not in out
+    assert "</table>\nafter" in out
+    assert "</table>\n\nafter" not in out
+
+
+def test_spacing_top_level_table_before_paragraph_collapses_p_br_cursor_park():
+    # Cursor-park <p><br/></p> between table and the following paragraph drops
+    # to empty, leaving table flush against the next paragraph (no blank line).
+    xml = (
+        "<p>before</p>"
+        "<table><tbody><tr><td>x</td></tr></tbody></table>"
+        "<p><br/></p>"
+        "<p>after</p>"
+    )
+    out = convert(xml)
+    assert "</table>\nafter" in out
+    assert "</table>\n\nafter" not in out
 
 
 def test_spacing_table_inside_info_callout_followed_by_heading_has_blank_quoted_line():
@@ -1895,6 +1909,9 @@ def test_spacing_table_inside_info_callout_followed_by_paragraph_no_overquoting(
         '</ac:rich-text-body></ac:structured-macro>'
     )
     out = convert(xml)
+    # Inside-callout case: blank line between table and following paragraph
+    # is preserved (collapsing post-process runs at top level only, on the
+    # unquoted form — quoted-blank patterns inside a callout are not matched).
     assert "> </table>\n>\n> after" in out
     assert "> </table>\n>\n>\n>" not in out
 

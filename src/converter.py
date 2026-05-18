@@ -25,10 +25,17 @@ def _unescape_html(text: str) -> str:
 
 _LIST_LINE_RE = re.compile(r'^(\t*)(- |\d+\. )')
 _OL_RESTART_RE = re.compile(r'((\t*)\d+\. [^\n]*)\n+\2(1\. )')
+_TABLE_BLANK_BEFORE_PLAIN_RE = re.compile(
+    r'(</table>)\n\n(?!(?:[#>`^<]|- |\d+\. ))'
+)
 
 
 def _break_adjacent_ordered_lists(text: str) -> str:
     return _OL_RESTART_RE.sub(r'\1\n\n\2> \n\n\2\3', text)
+
+
+def _collapse_blank_after_table_before_plain_text(text: str) -> str:
+    return _TABLE_BLANK_BEFORE_PLAIN_RE.sub(r'\1\n', text)
 
 
 def _inject_list_placeholders(text: str) -> str:
@@ -99,6 +106,7 @@ class Converter:
         text = re.sub(r'\n{3,}', '\n\n', text)
         text = _inject_list_placeholders(text)
         text = _break_adjacent_ordered_lists(text)
+        text = _collapse_blank_after_table_before_plain_text(text)
         return text.strip() + '\n'
 
     def _render(self, node) -> str:
