@@ -51,7 +51,7 @@ def migrate_page(
     title = page.get("title", "")
     storage = page.get("body", {}).get("storage", {}).get("value", "") or ""
 
-    converter = Converter(basename, title_map=resolver.title_map)
+    converter = Converter(basename, page_title=title, title_map=resolver.title_map)
     markdown = converter.convert(storage)
     frontmatter = build_frontmatter(page, confluence_url, parent=parent, children=children)
 

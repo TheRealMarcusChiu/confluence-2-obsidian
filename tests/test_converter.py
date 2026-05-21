@@ -411,36 +411,470 @@ def test_escape_formatting_chars_not_escaped_inside_anchor():
     assert "\\$" not in out
 
 
-def test_escape_suppressed_inside_code():
-    assert convert("<p>use <code>[brackets]</code> here</p>") == "use <code>[brackets]</code> here"
+def test_escape_full_set_applied_inside_code():
+    # The narrowed-to-`<>#` escape inside <code> was unified with the plain-text
+    # set after observing that Obsidian's HTML extension processes Markdown inside
+    # <code> (e.g. `*foo*` renders as italics). All 11 metacharacters are escaped.
+    assert convert("<p>use <code>[brackets]</code> here</p>") == "use <code>\\[brackets\\]</code> here"
 
 
-def test_escape_suppressed_inside_pre():
+def test_escape_full_set_applied_inside_pre():
     out = convert("<pre>[raw] code</pre>")
-    assert "[raw] code" in out
-    assert "\\[" not in out
+    assert "\\[raw\\] code" in out
 
 
-def test_pre_in_table_cell_transforms_to_multi_code_with_br():
-    # <pre> inside a cell now gets the same multi-<code>-with-<br> rendering as
-    # at document level — no more raw <pre> pass-through, no warning logged.
+def test_pre_wrapper_carries_whitespace_pre_wrap_style():
+    out = convert("<pre>def f():\n    return 1\n\tprint(2)</pre>")
+    assert out.startswith('<span style="white-space: pre-wrap">')
+    assert '<code>    return 1</code>' in out
+    assert '<code>\tprint(2)</code>' in out
+
+
+def test_pre_hoisted_from_li_flushes_against_following_p_inside_li():
+    # <li> containing <p>BEFORE</p><pre>...</pre><p>AFTER</p>:
+    # both <pre> and trailing <p> are hoisted; the blank line between the hoisted
+    # <span>-wrapper and the following plain text AFTER is collapsed to a single
+    # newline (exception (5) of the Block-spacing rule).
+    xml = '<ul><li><p>BEFORE</p><pre>    HELLO\n</pre><p>AFTER</p></li></ul>'
+    out = convert(xml)
+    assert out == (
+        '- BEFORE\n'
+        '<span style="white-space: pre-wrap"><code>    HELLO</code></span>\n'
+        'AFTER'
+    )
+
+
+def test_pre_hoisted_from_li_preserves_blank_line_before_p_outside_li():
+    # When <p>AFTER</p> sits at document level after </ul>, the boundary between
+    # the list and the next paragraph keeps its blank line — the in-<li> hoist
+    # collapse only fires for blocks hoisted from the same list item, not for
+    # adjacent blocks at the document level.
+    xml = '<ul><li><p>BEFORE</p><pre>    HELLO\n</pre></li></ul><p>AFTER</p>'
+    out = convert(xml)
+    assert out == (
+        '- BEFORE\n'
+        '<span style="white-space: pre-wrap"><code>    HELLO</code></span>\n\n'
+        'AFTER'
+    )
+
+
+def test_pre_hoisted_from_li_keeps_blank_line_before_heading():
+    # The block-marker guard preserves the blank line when the next content
+    # starts with a heading marker (#) — heading needs the blank to parse.
+    xml = '<ul><li><p>BEFORE</p><pre>    HELLO\n</pre></li></ul><h1>AFTER</h1>'
+    out = convert(xml)
+    assert '</span>\n\n# AFTER' in out
+
+
+def test_pre_hoisted_from_li_keeps_blank_line_before_list():
+    # Block-marker guard: list bullet `- ` is a Markdown block marker.
+    xml = '<ul><li><p>BEFORE</p><pre>    HELLO\n</pre></li></ul><ul><li>NEXT</li></ul>'
+    out = convert(xml)
+    assert '</span>\n\n- NEXT' in out
+
+
+def test_br_inside_li_first_p_emits_continuation_indent():
+    # <br/> inside an <li>'s inline body becomes a newline followed by a
+    # 2-space continuation indent (matching the `- ` marker's text-start
+    # column), so the multi-line body stays inside the same list item.
+    xml = '<ul><li><p>BEFORE<br/>HELLO</p></li></ul><p>AFTER</p>'
+    out = convert(xml)
+    assert out == (
+        '- BEFORE\n'
+        '  HELLO\n\n'
+        'AFTER'
+    )
+
+
+def test_br_inside_li_multiple_br_with_uncolored_span():
+    # Multiple <br/>s inside the inline body; the uncolored <span style="letter-spacing:...">
+    # (no `color:` so it unwraps) contributes "AFTER" inline. All three lines stay
+    # in the same list item.
+    xml = (
+        '<ul><li><p>BEFORE<br/>HELLO<br/>'
+        '<span style="letter-spacing: 0.0px;">AFTER</span></p></li></ul>'
+    )
+    out = convert(xml)
+    assert out == (
+        '- BEFORE\n'
+        '  HELLO\n'
+        '  AFTER'
+    )
+
+
+def test_br_inside_ordered_li_uses_three_space_continuation():
+    # `1. ` marker is 3 chars wide; continuation indent is 3 spaces.
+    xml = '<ol><li><p>BEFORE<br/>HELLO</p></li></ol>'
+    out = convert(xml)
+    assert out == '1. BEFORE\n   HELLO'
+
+
+def test_br_inside_nested_li_drops_to_column_zero():
+    # `<br/>` continuation indent applies only at depth 0; nested <li>s (depth ≥ 1)
+    # produce a bare \n so the post-<br/> content sits at column 0, effectively
+    # terminating the inner list at the <br/> boundary.
+    xml = '<ul><li><p>OUTER</p><ul><li><p>X<br/>Y</p></li></ul></li></ul>'
+    out = convert(xml)
+    assert '\t- X\nY' in out
+    assert '\t  Y' not in out
+
+
+def _table_for_nested_li_examples():
+    return (
+        '<table class="wrapped" style="text-align: left;"><colgroup><col /></colgroup>'
+        '<tbody style="text-align: left;"><tr style="text-align: left;">'
+        '<td style="text-align: left;"><p style="text-align: left;">'
+        '<code class="java plain" style="text-align: left;">INSIDE TABLE</code>'
+        '</p></td></tr></tbody></table>'
+    )
+
+
+def test_li_with_block_nested_and_trailing_p_interleaves_in_source_order():
+    # Outer <ol> <li> has: <p>WORLD</p>, <table>, <ul><li>HELLO</li></ul>, <p>AFTER</p>
+    # The <table> is now a ```merge-table fenced block; the fence-exception in
+    # the <li>-block rule indents it inside the list item rather than hoisting
+    # to column 0. The intervening fence lines reset the depth-jump pass's
+    # list-line scan, so the nested <ul> still gets a `- ` placeholder injected
+    # at depth 0. Trailing <p>AFTER</p> still picks up the 2-space post-nested
+    # indent.
+    xml = (
+        '<ol><li>'
+        '<p class="auto-cursor-target">WORLD</p>'
+        + _table_for_nested_li_examples() +
+        '<ul><li>HELLO</li></ul>'
+        '<p class="auto-cursor-target">AFTER</p>'
+        '</li></ol>'
+    )
+    out = convert(xml)
+    assert '1. WORLD' in out
+    # Merge-table fence is indented 4 spaces inside the depth-0 list item.
+    assert '    ```merge-table\n' in out
+    assert '    ```\n' in out
+    # Table-level tableStyle carries the style attribute verbatim.
+    assert '"tableStyle": "text-align: left;"' in out
+    # Nested list still appears (with depth-jump placeholder above it).
+    assert '\n- \n\t- HELLO' in out
+    # Source order preserved.
+    assert out.index('\t- HELLO') < out.index('AFTER')
+    # Trailing hoisted content gets the 2-space post-nested indent.
+    assert '\n\n  AFTER' in out
+
+
+def test_li_with_block_nested_and_br_inside_nested_li_drops_after_to_column_zero():
+    # Outer <ol> <li> has: <p>WORLD</p>, <table>, <ul><li>HELLO<br/>AFTER</li></ul>
+    # The <br/> inside the depth-1 nested <li> body produces a bare \n (no
+    # continuation indent), so AFTER lands at column 0.
+    xml = (
+        '<ol><li>'
+        '<p class="auto-cursor-target">WORLD</p>'
+        + _table_for_nested_li_examples() +
+        '<ul><li>HELLO<br />AFTER</li></ul>'
+        '</li></ol>'
+    )
+    out = convert(xml)
+    assert '\t- HELLO\nAFTER' in out
+    assert '\t  AFTER' not in out
+
+
+def test_paragraph_with_margin_left_40px_emits_indent_callout_depth_one():
+    # Confluence emits `<p style="margin-left: Npx;">` when the author indents a
+    # paragraph via the toolbar (each toolbar-indent level = 40px). The
+    # paragraph becomes a `> [!indent]` callout; depth is RELATIVE within a
+    # consecutive run of margin paragraphs (smallest margin = depth 1).
+    xml = '<h1>X</h1><p style="margin-left: 40.0px;">AFTER</p>'
+    out = convert(xml)
+    assert out == "# X\n\n> [!indent]\n> AFTER"
+
+
+def test_paragraph_with_margin_left_80px_alone_still_emits_depth_one():
+    # 80px alone (no smaller margin in the same run) is depth 1, not depth 2 —
+    # the rule is relative, not absolute.
+    xml = '<h1>X</h1><p style="margin-left: 80px;">AFTER</p>'
+    out = convert(xml)
+    assert out == "# X\n\n> [!indent]\n> AFTER"
+
+
+def test_tag_only_p_with_colored_span_only_preserves_break():
+    # Colored <span> direct child of tag-only <p> (no nested formatting inside
+    # the span) still preserves the paragraph break via single `\n`. Broadens
+    # last turn's rule which required nested-tag descendants.
+    xml = (
+        '<h1><span style="color: rgb(51,51,51);">HEADER</span></h1>'
+        '<p><span style="color: rgb(51,51,51);">TEXT</span></p>'
+    )
+    out = convert(xml)
+    assert out == (
+        '# <font style="color: rgb(51,51,51);">HEADER</font>\n'
+        '<font style="color: rgb(51,51,51);">TEXT</font>'
+    )
+
+
+def test_heading_then_text_then_indent_then_text_full_shape():
+    # User's Example 2: heading, plain-colored-paragraph, indented paragraph,
+    # plain-colored-paragraph. The indented one becomes a single-depth callout
+    # surrounded by blank-line paragraph spacing on both sides.
+    xml = (
+        '<h1><span style="color: rgb(51,51,51);">HEADER</span></h1>'
+        '<p><span style="color: rgb(51,51,51);">TEXT_1</span></p>'
+        '<p style="margin-left: 80.0px;"><span style="color: rgb(51,51,51);">INDENTED_TEXT</span></p>'
+        '<p><span style="color: rgb(51,51,51);">TEXT_2</span></p>'
+    )
+    out = convert(xml)
+    assert out == (
+        '# <font style="color: rgb(51,51,51);">HEADER</font>\n'
+        '<font style="color: rgb(51,51,51);">TEXT\\_1</font>\n'
+        '\n'
+        '> [!indent]\n'
+        '> <font style="color: rgb(51,51,51);">INDENTED\\_TEXT</font>\n'
+        '\n'
+        '<font style="color: rgb(51,51,51);">TEXT\\_2</font>'
+    )
+
+
+def test_consecutive_margin_paragraphs_progressive_nest_relative_depths():
+    # A consecutive run of margin paragraphs with progressively deeper margins
+    # nests at relative depths 1, 2, 3, …. The smallest margin in the run is
+    # depth 1; each next-deeper margin adds one level of `> ` prefix.
+    xml = (
+        '<p style="margin-left: 40.0px;">ONE</p>'
+        '<p style="margin-left: 80.0px;">TWO</p>'
+        '<p style="margin-left: 120.0px;">THREE</p>'
+    )
+    out = convert(xml)
+    assert out == (
+        "> [!indent]\n"
+        "> ONE\n"
+        "> > [!indent]\n"
+        "> > TWO\n"
+        "> > > [!indent]\n"
+        "> > > THREE"
+    )
+
+
+def test_margin_left_px_rounded_to_nearest_forty():
+    # Non-multiples of 40 (e.g. 30, 70) round to nearest 40 via round(px/40).
+    xml = (
+        '<p style="margin-left: 30.0px;">A</p>'
+        '<p style="margin-left: 70.0px;">B</p>'
+    )
+    out = convert(xml)
+    # 30 → round(0.75) = 1; 70 → round(1.75) = 2. Run [1, 2], min=1, depths [1, 2].
+    assert out == "> [!indent]\n> A\n> > [!indent]\n> > B"
+
+
+def test_paragraph_with_margin_left_zero_no_indent():
+    xml = '<h1>X</h1><p style="margin-left: 0px;">AFTER</p>'
+    out = convert(xml)
+    assert out == "# X\n\nAFTER"
+
+
+def test_paragraph_without_margin_left_no_indent():
+    xml = '<h1>X</h1><p>AFTER</p>'
+    out = convert(xml)
+    assert out == "# X\n\nAFTER"
+
+
+def test_li_with_nested_then_doc_level_margin_p_after_emits_indent_callout():
+    # Document-level <p style="margin-left: 40px;"> after a list with hoisted
+    # blocks and a nested <ul>. Margin paragraph becomes a `[!indent]` callout
+    # at depth 1 (single-paragraph run).
+    xml = (
+        '<ol><li>'
+        '<p class="auto-cursor-target">WORLD</p>'
+        + _table_for_nested_li_examples() +
+        '<ul><li>HELLO</li></ul>'
+        '</li></ol>'
+        '<p style="margin-left: 40.0px;">AFTER</p>'
+    )
+    out = convert(xml)
+    assert '\t- HELLO\n> [!indent]\n> AFTER' in out
+
+
+def test_code_macro_in_li_only_content_emits_indented_fence_under_empty_marker():
+    # <li> contains only the code macro (cursor-park <p>s drop) → empty marker
+    # line followed by a 4-space-indented fenced block that stays inside the
+    # list item under CommonMark.
+    xml = (
+        '<ul>'
+        '<li>BEFORE</li>'
+        '<li>'
+        '<p class="auto-cursor-target"><br /></p>'
+        '<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[CODE_TEXT]]></ac:plain-text-body></ac:structured-macro>'
+        '<p class="auto-cursor-target"><br /></p>'
+        '</li>'
+        '<li>AFTER</li>'
+        '</ul>'
+    )
+    out = convert(xml)
+    assert out == (
+        "- BEFORE\n"
+        "- \n"
+        "    ```\n"
+        "    CODE_TEXT\n"
+        "    ```\n"
+        "- AFTER"
+    )
+
+
+def test_code_macro_in_li_after_inline_body_emits_indented_fence_below_marker():
+    # <li> has BEFORE inline body and a code macro hoisted; under the new rule
+    # the fenced block is 4-space indented to stay inside the list item rather
+    # than column-0 hoisted.
+    xml = (
+        '<ul>'
+        '<li>'
+        '<p class="auto-cursor-target">BEFORE</p>'
+        '<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[CODE_TEXT]]></ac:plain-text-body></ac:structured-macro>'
+        '<p class="auto-cursor-target"><br /></p>'
+        '</li>'
+        '<li>AFTER</li>'
+        '</ul>'
+    )
+    out = convert(xml)
+    assert out == (
+        "- BEFORE\n"
+        "    ```\n"
+        "    CODE_TEXT\n"
+        "    ```\n"
+        "- AFTER"
+    )
+
+
+def test_code_macro_at_document_level_between_lists_no_blank_line_before_fence():
+    # Document-level code macro between two lists: the rule-(4) list-trailing
+    # blank is suppressed before the fence so the code sits flush against the
+    # list (same pattern as the `>` callout suppression).
+    xml = (
+        '<ul><li>BEFORE</li></ul>'
+        '<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[CODE_TEXT]]></ac:plain-text-body></ac:structured-macro>'
+        '<p><br /></p>'
+        '<ul><li>AFTER</li></ul>'
+    )
+    out = convert(xml)
+    assert out == (
+        "- BEFORE\n"
+        "```\n"
+        "CODE_TEXT\n"
+        "```\n"
+        "- AFTER"
+    )
+
+
+def test_code_macro_in_nested_li_uses_tab_plus_four_space_indent():
+    # Nested <li> at depth 1 → indent is `\t` (depth scaling) + 4 spaces.
+    xml = (
+        '<ul><li>'
+        '<p>OUTER</p>'
+        '<ul><li>'
+        '<p class="auto-cursor-target">INNER</p>'
+        '<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[X]]></ac:plain-text-body></ac:structured-macro>'
+        '</li></ul>'
+        '</li></ul>'
+    )
+    out = convert(xml)
+    assert "\t- INNER\n\t    ```\n\t    X\n\t    ```" in out
+
+
+def test_code_macro_only_in_li_does_not_log_block_content_warning():
+    # The "list item with block content (hoisted to column 0)" warning was
+    # noise for code macros under the new rule — code stays INSIDE the item,
+    # not hoisted to column 0. Warning is suppressed when only code blocks
+    # appear in the hoist set.
     from src.converter import Converter
-    xml = "<table><tr><td><pre>Hello<br/>World</pre></td></tr></table>"
-    c = Converter("MyPage")
-    out = c.convert(xml)
-    assert "<code>Hello</code><br><code>World</code>" in out
-    assert "<pre>" not in out
-    assert not any("<pre>" in w for w in c.warnings)
+    xml = (
+        '<ul><li>'
+        '<p>X</p>'
+        '<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[y]]></ac:plain-text-body></ac:structured-macro>'
+        '</li></ul>'
+    )
+    c = Converter('MyPage')
+    c.convert(xml)
+    assert not any("list item" in w.lower() for w in c.warnings)
+
+
+def test_tag_only_p_with_nested_formatting_preserves_break_single_newline():
+    # A tag-only <p> whose direct tag child has another tag descendant
+    # (`<span color><strong>X</strong></span>` here) is the user's signal for
+    # "meaningful paragraph, not cursor-park" — preserve the paragraph break
+    # via a single `\n` (no blank line) so the line doesn't glue to the previous
+    # block's content.
+    xml = (
+        '<h1><span style="color: rgb(51,51,51);">HEADER</span></h1>'
+        '<p><span style="color: rgb(51,51,51);"><strong>TEXT</strong></span></p>'
+    )
+    out = convert(xml)
+    assert out == (
+        '# <font style="color: rgb(51,51,51);">HEADER</font>\n'
+        '<font style="color: rgb(51,51,51);"><strong>TEXT</strong></font>'
+    )
+
+
+def test_tag_only_p_with_single_inline_no_nesting_still_unwraps():
+    # The cursor-park carve-out is intact when the direct tag child has NO
+    # tag descendants — `<p><code>X</code></p>` and `<p><span color>X</span></p>`
+    # still unwrap so they glue inline to the previous content.
+    xml = '<p>before</p><p><code>X</code></p>'
+    out = convert(xml)
+    # Cursor-park unwrap → no `\n` before the <code>; glues to "before".
+    assert out == 'before<code>X</code>'
+
+
+def test_tag_only_p_with_strong_no_nesting_still_unwraps():
+    xml = '<p>before</p><p><strong>X</strong></p>'
+    out = convert(xml)
+    assert out == 'before<strong>X</strong>'
+
+
+def test_tag_only_p_with_double_nested_formatting_preserves_break():
+    # `<strong><em>X</em></strong>` inside <p> — `<em>` is nested under `<strong>`,
+    # triggers the carve-out, paragraph break preserved.
+    xml = '<h2>HEAD</h2><p><strong><em>X</em></strong></p>'
+    out = convert(xml)
+    assert out == '## HEAD\n<strong><em>X</em></strong>'
+
+
+def test_tag_only_p_with_macro_only_still_unwraps():
+    # `ac:*` descendants don't trigger the carve-out — macro-only <p>s keep
+    # the original cursor-park-style unwrap, so callouts and other macros sit
+    # flush against their preceding content without an extra paragraph break.
+    xml = (
+        '<h1>HEAD</h1>'
+        '<p><ac:structured-macro ac:name="info">'
+        '<ac:rich-text-body><p>note</p></ac:rich-text-body>'
+        '</ac:structured-macro></p>'
+    )
+    out = convert(xml)
+    # info macro renders as `> [!info]\n> note`; wrapper <p> unwraps because
+    # the macro's direct children (ac:rich-text-body, ac:parameter, …) all
+    # start with `ac:` so the nested-formatting check stays False.
+    assert "# HEAD\n> [!info]\n> note" in out
+
+
+def test_li_with_block_nested_then_document_level_p_after_keeps_blank_line():
+    # Outer <ol> <li> has block + nested <ul>; <p>AFTER</p> at document level
+    # after </ol>. The document-level boundary keeps the blank line; AFTER at
+    # column 0 (no continuation indent — it's not hoisted from the outer <li>).
+    xml = (
+        '<ol><li>'
+        '<p class="auto-cursor-target">WORLD</p>'
+        + _table_for_nested_li_examples() +
+        '<ul><li>HELLO</li></ul>'
+        '</li></ol>'
+        '<p>AFTER</p>'
+    )
+    out = convert(xml)
+    assert '\t- HELLO\n\nAFTER' in out
+    assert '  AFTER' not in out  # no 2-space indent because AFTER is doc-level
 
 
 def test_pre_uncolored_span_unwraps_but_colored_becomes_font():
     out = convert('<pre><span>plain</span> <span style="color: red;">red</span></pre>')
-    assert out == '<code>plain <font style="color: red;">red</font></code>'
+    assert out == '<span style="white-space: pre-wrap"><code>plain <font style="color: red;">red</font></code></span>'
 
 
 def test_pre_strong_renders_as_raw_html():
     out = convert("<pre><strong>foo</strong></pre>")
-    assert out == "<code><strong>foo</strong></code>"
+    assert out == '<span style="white-space: pre-wrap"><code><strong>foo</strong></code></span>'
 
 
 def test_pre_empty_emits_nothing():
@@ -449,24 +883,25 @@ def test_pre_empty_emits_nothing():
 
 
 def test_pre_user_example_br_separator():
-    # Per spec: <pre>Hello<br/>World</pre> → <code>Hello</code><br><code>World</code>
+    # Per spec: <pre>Hello<br/>World</pre> wraps the multi-<code>-with-<br> in a
+    # <span style="white-space: pre-wrap"> so Obsidian preserves indentation.
     out = convert("<pre>Hello<br/>World</pre>")
-    assert out == "<code>Hello</code><br><code>World</code>"
+    assert out == '<span style="white-space: pre-wrap"><code>Hello</code><br><code>World</code></span>'
 
 
 def test_pre_splits_on_br_and_newline():
     out = convert("<pre>a<br/>b\nc</pre>")
-    assert out == "<code>a</code><br><code>b</code><br><code>c</code>"
+    assert out == '<span style="white-space: pre-wrap"><code>a</code><br><code>b</code><br><code>c</code></span>'
 
 
 def test_pre_drops_trailing_empty_lines():
     out = convert("<pre>foo\n\n\n</pre>")
-    assert out == "<code>foo</code>"
+    assert out == '<span style="white-space: pre-wrap"><code>foo</code></span>'
 
 
 def test_pre_keeps_internal_empty_lines():
     out = convert("<pre>foo\n\nbar</pre>")
-    assert out == "<code>foo</code><br><code></code><br><code>bar</code>"
+    assert out == '<span style="white-space: pre-wrap"><code>foo</code><br><code></code><br><code>bar</code></span>'
 
 
 def test_pre_emits_multi_code_one_per_line():
@@ -484,6 +919,7 @@ def test_pre_emits_multi_code_one_per_line():
         '</pre>'
     )
     expected = (
+        '<span style="white-space: pre-wrap">'
         '<code><font style="color: rgb(0,0,255);">GET</font> '
         '<font style="color: rgb(0,0,255);">/index.html</font> '
         '<font style="color: rgb(0,128,0);">HTTP</font>'
@@ -492,14 +928,38 @@ def test_pre_emits_multi_code_one_per_line():
         '<code><font style="color: rgb(125,144,41);">Host</font>'
         '<font style="color: rgb(102,102,102);">:</font> www.example.org</code><br>'
         '<code>...</code>'
+        '</span>'
     )
     assert convert(xml) == expected
 
 
-def test_escape_suppressed_inside_colored_span_font():
+def test_escape_full_set_applied_inside_colored_span_font():
+    # Colored <span> becomes <font> in output. Obsidian's HTML extension processes
+    # Markdown inside <font> the same as inside <code>, so the full plain-text
+    # escape set applies (was previously left verbatim — corrected after observing
+    # `**bold**` / `*italic*` rendering between <font> tags).
     out = convert('<p><span style="color: red;">[red text]</span></p>')
-    assert out == '<font style="color: red;">[red text]</font>'
-    assert "\\[" not in out
+    assert out == '<font style="color: red;">\\[red text\\]</font>'
+
+
+def test_escape_bold_pattern_inside_colored_span_font():
+    # Real-world case: **TEXT** inside <font> would render as bold without the
+    # escape — same observation as inside <code>.
+    out = convert('<p><span style="color: red;">**TEXT**</span></p>')
+    assert out == '<font style="color: red;">\\*\\*TEXT\\*\\*</font>'
+
+
+def test_escape_full_plain_text_set_inside_colored_span_font():
+    out = convert('<p><span style="color: red;">\\ ` * _ ~ # [ ] $</span></p>')
+    assert out == '<font style="color: red;">\\\\ \\` \\* \\_ \\~ \\# \\[ \\] \\$</font>'
+
+
+def test_escape_applied_to_colored_span_inside_pre():
+    # Colored span inside <pre> renders as <font> inside <code>; the escape applies
+    # because both the <pre>'s child rendering and the colored-span rule resolve
+    # to the same full plain-text set.
+    out = convert('<pre><span style="color: red;">*foo*</span></pre>')
+    assert '<font style="color: red;">\\*foo\\*</font>' in out
 
 
 def test_escape_suppressed_in_code_macro_body():
@@ -510,10 +970,12 @@ def test_escape_suppressed_in_code_macro_body():
     assert "\\[" not in out
 
 
-def test_escape_closer_no_escape_wins_over_outer_paragraph():
-    # <p> says escape, but <code> closer says no — code wins.
+def test_escape_closer_code_wins_over_outer_paragraph():
+    # <code> short-circuits the ancestor walk in _plain_text_escape_re — closer
+    # wins on which regex applies. Both <p> and <code> now use the same plain-text
+    # set, so `[` / `]` get the same backslash escape regardless.
     out = convert("<p>foo <code>[x]</code> bar</p>")
-    assert out == "foo <code>[x]</code> bar"
+    assert out == "foo <code>\\[x\\]</code> bar"
 
 
 def test_escape_brackets_only_when_anchor_anywhere_in_chain():
@@ -547,15 +1009,77 @@ def test_escape_angle_brackets_inside_code():
     assert convert("<p>use <code>&lt;Y&gt;</code> here</p>") == "use <code>\\<Y\\></code> here"
 
 
-def test_escape_angle_brackets_inside_code_other_markdown_chars_not_escaped():
+def test_escape_full_plain_text_set_applied_inside_code():
+    # The full plain-text set is escaped inside <code> — `*`, `_`, `~`, `[`, `]`,
+    # `$`, `#`, `<`, `>`, `\`, `` ` `` — because Obsidian's HTML extension processes
+    # Markdown (bold/italics etc.) inside inline-code.
     out = convert("<p>X <code>*foo* &lt;Y&gt;</code> Z</p>")
-    assert out == "X <code>*foo* \\<Y\\></code> Z"
+    assert out == "X <code>\\*foo\\* \\<Y\\></code> Z"
+
+
+def test_escape_full_set_inside_inline_code_each_char():
+    # Each of \, `, *, _, ~, [, ], $ picks up a backslash inside <code>
+    # (in addition to <, >, # already covered elsewhere).
+    out = convert("<p><code>\\ ` * _ ~ [ ] $</code></p>")
+    assert out == "<code>\\\\ \\` \\* \\_ \\~ \\[ \\] \\$</code>"
+
+
+def test_escape_full_set_inside_pre_each_char():
+    out = convert("<pre>\\ ` * _ ~ [ ] $</pre>")
+    assert '<code>\\\\ \\` \\* \\_ \\~ \\[ \\] \\$</code>' in out
+
+
+def test_escape_bold_pattern_inside_inline_code():
+    # Real-world case: **TEXT** inside <code> would render as bold without
+    # the escape. Each `*` gets backslash-escaped.
+    out = convert("<p>see <code>**TEXT**</code></p>")
+    assert out == "see <code>\\*\\*TEXT\\*\\*</code>"
+
+
+def test_full_set_not_escaped_in_document_level_code_macro_body():
+    # Document-level fenced ```py block stays verbatim — Markdown isn't processed
+    # inside the fence, so escapes would render as visible backslashes.
+    xml = (
+        '<ac:structured-macro ac:name="code">'
+        '<ac:parameter ac:name="language">py</ac:parameter>'
+        '<ac:plain-text-body><![CDATA[a * b _c_ ~d~ [e] $f]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "a * b _c_ ~d~ [e] $f" in out
+    assert "\\*" not in out
+    assert "\\_" not in out
+    assert "\\~" not in out
+    assert "\\[" not in out
+    assert "\\$" not in out
+
+
+def test_escape_hash_inside_inline_code():
+    # `#` inside <code> is backslash-escaped to defeat Obsidian's tag extension,
+    # which fires on `#word` patterns even inside HTML inline-code.
+    out = convert("<p>use <code>#define</code> here</p>")
+    assert out == "use <code>\\#define</code> here"
+
+
+def test_escape_hash_inside_inline_code_multiple_occurrences():
+    out = convert("<p><code>color=#ff0000 # red</code></p>")
+    assert out == "<code>color=\\#ff0000 \\# red</code>"
 
 
 def test_escape_angle_brackets_inside_pre():
-    # <pre> renders as multi-<code> lines; angle escape applies inside each line.
+    # <pre> renders as multi-<code> lines wrapped in <span style="white-space: pre-wrap">;
+    # angle escape applies inside each line.
     out = convert("<pre>&lt;X&gt;</pre>")
-    assert out == "<code>\\<X\\></code>"
+    assert out == '<span style="white-space: pre-wrap"><code>\\<X\\></code></span>'
+
+
+def test_escape_hash_inside_pre():
+    out = convert("<pre>#define FOO 1\nx = #ff0000</pre>")
+    assert out == (
+        '<span style="white-space: pre-wrap">'
+        '<code>\\#define FOO 1</code><br><code>x = \\#ff0000</code>'
+        '</span>'
+    )
 
 
 def test_escape_angle_brackets_not_applied_in_code_macro_body():
@@ -565,6 +1089,17 @@ def test_escape_angle_brackets_not_applied_in_code_macro_body():
     out = convert(xml)
     assert "x = <Y>" in out
     assert "\\<" not in out
+
+
+def test_hash_not_escaped_in_document_level_code_macro_body():
+    # Document-level ac:name="code" emits a fenced ```py block; Markdown isn't
+    # processed inside the fence, so `\#` would render as a visible backslash to
+    # the reader. Skip the escape — `#` stays literal in fenced blocks.
+    xml = '<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">py</ac:parameter><ac:plain-text-body><![CDATA[x = 1 # comment\ny = #ff0000]]></ac:plain-text-body></ac:structured-macro>'
+    out = convert(xml)
+    assert "x = 1 # comment" in out
+    assert "y = #ff0000" in out
+    assert "\\#" not in out
 
 
 def test_escape_intraword_underscore_still_escapes():
@@ -784,184 +1319,6 @@ def test_external_link():
     assert "[site](https://example.com)" in out
 
 
-def test_table_emits_prettified_raw_html():
-    xml = "<table><tbody><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></tbody></table>"
-    out = convert(xml)
-    expected = (
-        "<table>\n"
-        "    <tbody>\n"
-        "        <tr>\n"
-        '            <th style="background-color: #F4F5F7;">A</th>\n'
-        '            <th style="background-color: #F4F5F7;">B</th>\n'
-        "        </tr>\n"
-        "        <tr>\n"
-        "            <td>1</td>\n"
-        "            <td>2</td>\n"
-        "        </tr>\n"
-        "    </tbody>\n"
-        "</table>"
-    )
-    assert out == expected
-
-
-def test_table_strips_colgroup():
-    xml = "<table><colgroup><col/><col/></colgroup><tbody><tr><td>x</td></tr></tbody></table>"
-    out = convert(xml)
-    assert "colgroup" not in out
-    assert "<col" not in out
-
-
-def test_table_strips_unknown_attributes_keeps_colspan_rowspan():
-    xml = '<table class="confluenceTable" data-x="1"><tbody><tr><td colspan="2" rowspan="3" class="cell">x</td></tr></tbody></table>'
-    out = convert(xml)
-    assert 'class="confluenceTable"' not in out
-    assert 'data-x' not in out
-    assert 'class="cell"' not in out
-    assert '<table>' in out
-    assert 'colspan="2"' in out
-    assert 'rowspan="3"' in out
-
-
-def test_table_data_highlight_colour_becomes_style():
-    xml = '<table><tbody><tr><td data-highlight-colour="grey">x</td></tr></tbody></table>'
-    out = convert(xml)
-    assert 'data-highlight-colour' not in out
-    assert 'style="background-color: #F4F5F7;"' in out
-
-
-def test_table_style_attribute_kept_verbatim():
-    xml = '<table style="width: 100%;"><tbody><tr><td style="text-align: center;">x</td></tr></tbody></table>'
-    out = convert(xml)
-    assert 'style="width: 100%;"' in out
-    assert 'style="text-align: center;"' in out
-
-
-def test_table_cell_style_and_highlight_colour_merge():
-    xml = '<table><tbody><tr><td style="text-align: center;" data-highlight-colour="grey">x</td></tr></tbody></table>'
-    out = convert(xml)
-    assert 'data-highlight-colour' not in out
-    assert 'style="text-align: center; background-color: #F4F5F7;"' in out
-
-
-def test_table_cell_style_without_trailing_semicolon_merges_cleanly():
-    xml = '<table><tbody><tr><td style="text-align: center" data-highlight-colour="grey">x</td></tr></tbody></table>'
-    out = convert(xml)
-    assert 'style="text-align: center; background-color: #F4F5F7;"' in out
-
-
-def test_table_th_with_no_styling_gets_auto_background():
-    xml = '<table><tbody><tr><th>head</th></tr></tbody></table>'
-    out = convert(xml)
-    assert '<th style="background-color: #F4F5F7;">head</th>' in out
-
-
-def test_table_th_with_explicit_data_highlight_skips_auto_background():
-    xml = '<table><tbody><tr><th data-highlight-colour="red">head</th></tr></tbody></table>'
-    out = convert(xml)
-    assert '<th style="background-color: red;">head</th>' in out
-    assert '#F4F5F7' not in out
-
-
-def test_table_th_with_explicit_background_in_style_skips_auto():
-    xml = '<table><tbody><tr><th style="background-color: yellow;">head</th></tr></tbody></table>'
-    out = convert(xml)
-    assert '<th style="background-color: yellow;">head</th>' in out
-    assert '#F4F5F7' not in out
-
-
-def test_table_th_with_non_background_style_appends_auto():
-    xml = '<table><tbody><tr><th style="text-align: center;">head</th></tr></tbody></table>'
-    out = convert(xml)
-    assert '<th style="text-align: center; background-color: #F4F5F7;">head</th>' in out
-
-
-def test_table_data_highlight_colour_other_than_grey_passes_through():
-    xml = '<table><tbody><tr><td data-highlight-colour="red">x</td></tr></tbody></table>'
-    out = convert(xml)
-    assert 'style="background-color: red;"' in out
-
-
-def test_table_cell_with_ac_link_no_body_uses_page_title():
-    # <p><ac:link/></p> is Tag-only — the wrapping <p> is stripped, the
-    # ac:link renders as plain text directly inside the cell.
-    xml = '<table><tbody><tr><td><p><ac:link><ri:page ri:space-key="NOT" ri:content-title="Samsung" /></ac:link></p></td></tr></tbody></table>'
-    out = convert(xml)
-    assert "<td>Samsung</td>" in out
-    assert "<p>" not in out
-    assert "ac:link" not in out
-    assert "ri:page" not in out
-
-
-def test_table_cell_with_ac_link_with_body_uses_alt_text():
-    xml = '<table><tbody><tr><td><p><ac:link><ri:page ri:space-key="NOT" ri:content-title="Samsung" /><ac:plain-text-link-body><![CDATA[ALT_TEXT]]></ac:plain-text-link-body></ac:link></p></td></tr></tbody></table>'
-    out = convert(xml)
-    assert "<td>ALT_TEXT</td>" in out
-    assert "<p>" not in out
-    assert "Samsung" not in out
-
-
-def test_table_cell_with_ac_macro_emitted_as_escaped_source_xml():
-    xml = '<table><tbody><tr><td><ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro></td></tr></tbody></table>'
-    out = convert(xml)
-    assert "&lt;ac:structured-macro" in out
-    assert 'ac:name="info"' in out
-    assert "&lt;/ac:structured-macro&gt;" in out
-    assert "<ac:structured-macro" not in out
-
-
-def test_table_cell_latex_inline_renders_as_math_display_span():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="latex-inline">'
-        '<ac:plain-text-body><![CDATA[x^2 + y^2]]></ac:plain-text-body>'
-        '</ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert '<span class="math display">x^2 + y^2</span>' in out
-    assert "&lt;ac:structured-macro" not in out
-
-
-def test_table_cell_latex_block_renders_as_math_display_span():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="latex-block">'
-        '<ac:plain-text-body><![CDATA[\\int x dx]]></ac:plain-text-body>'
-        '</ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert '<span class="math display">\\int x dx</span>' in out
-
-
-def test_table_cell_latex_alias_renders_as_math_display_span():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="latex">'
-        '<ac:plain-text-body><![CDATA[\\alpha]]></ac:plain-text-body>'
-        '</ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert '<span class="math display">\\alpha</span>' in out
-
-
-def test_table_cell_latex_normalizes_multiline_and_unicode_whitespace():
-    # Multi-line CDATA + NBSP in body — both normalized to single ASCII space
-    nbsp = chr(0xa0)
-    body = f'\\alpha\n\\beta{nbsp}\\gamma'
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="latex-inline">'
-        f'<ac:plain-text-body><![CDATA[{body}]]></ac:plain-text-body>'
-        '</ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert '<span class="math display">\\alpha \\beta \\gamma</span>' in out
-    assert nbsp not in out
-
-
 def test_document_level_latex_block_logs_warning():
     xml = '<ac:structured-macro ac:name="latex-block"><ac:plain-text-body><![CDATA[x]]></ac:plain-text-body></ac:structured-macro>'
     c = Converter("MyPage")
@@ -987,301 +1344,6 @@ def test_cell_latex_block_logs_warning():
     c = Converter("MyPage")
     c.convert(xml)
     assert any("latex-block" in w and "MyPage" in w for w in c.warnings)
-
-
-def test_cell_untransformed_structured_macro_logs_with_name():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    c = Converter("MyPage")
-    c.convert(xml)
-    assert any(
-        "info" in w and "table cell" in w.lower() and "MyPage" in w
-        for w in c.warnings
-    )
-
-
-def test_cell_untransformed_anchor_macro_logs_warning():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">foo</ac:parameter></ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    c = Converter("MyPage")
-    c.convert(xml)
-    assert any(
-        "anchor" in w and "table cell" in w.lower() and "MyPage" in w
-        for w in c.warnings
-    )
-
-
-def test_cell_other_ac_element_logs_warning():
-    # ac:emoticon has no cell-specific handler — falls through to source-XML escape
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:emoticon ac:name="smile" />'
-        '</td></tr></tbody></table>'
-    )
-    c = Converter("MyPage")
-    c.convert(xml)
-    assert any(
-        "ac:emoticon" in w and "table cell" in w.lower() and "MyPage" in w
-        for w in c.warnings
-    )
-
-
-def test_table_cell_latex_html_escapes_body():
-    # < and > inside LaTeX body must be HTML-escaped so the surrounding span stays valid HTML
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="latex-inline">'
-        '<ac:plain-text-body><![CDATA[a < b > c & d]]></ac:plain-text-body>'
-        '</ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert '<span class="math display">a &lt; b &gt; c &amp; d</span>' in out
-
-
-def test_table_cell_expand_with_title_renders_inline_details():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">ALT TEXT</ac:parameter>'
-        '<ac:rich-text-body><p>CONTENT</p></ac:rich-text-body></ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert "<details><summary>ALT TEXT</summary><p>CONTENT</p></details>" in out
-    assert "&lt;ac:structured-macro" not in out
-
-
-def test_table_cell_ui_expand_renders_inline_details():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="ui-expand"><ac:parameter ac:name="title">T</ac:parameter>'
-        '<ac:rich-text-body><p>body</p></ac:rich-text-body></ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert "<details><summary>T</summary><p>body</p></details>" in out
-
-
-def test_table_cell_expand_without_title_uses_default_summary():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="expand">'
-        '<ac:rich-text-body><p>x</p></ac:rich-text-body></ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert "<details><summary>Click here to expand...</summary><p>x</p></details>" in out
-
-
-def test_table_cell_expand_body_keeps_cell_rules_for_nested_ac_macros():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter>'
-        '<ac:rich-text-body>'
-        '<ac:structured-macro ac:name="info"><ac:rich-text-body><p>n</p></ac:rich-text-body></ac:structured-macro>'
-        '</ac:rich-text-body></ac:structured-macro>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert "<details><summary>T</summary>" in out
-    assert "&lt;ac:structured-macro" in out
-    assert 'ac:name="info"' in out
-
-
-def test_table_cell_with_ac_image_transforms_to_img_tag():
-    xml = (
-        '<table><tbody><tr><th rowspan="3">'
-        '<div class="content-wrapper">'
-        '<p><ac:image ac:style="max-height: 250.0px;" ac:thumbnail="true" ac:height="250">'
-        '<ri:attachment ri:filename="Screenshot 2026-04-30 at 2.00.51 PM.png" />'
-        '</ac:image></p></div></th></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert '<th rowspan="3" style="background-color: #F4F5F7;">' in out
-    assert "content-wrapper" not in out
-    assert "<div" not in out
-    assert "<p>" not in out
-    assert '<img src="Screenshot 2026-04-30 at 2.00.51 PM.png" height="250" />' in out
-    assert "ac:image" not in out
-    assert "ac:thumbnail" not in out
-    assert "ac:style" not in out
-
-
-def test_table_cell_ac_image_normalizes_unicode_whitespace_in_filename():
-    xml = '<table><tbody><tr><td><ac:image><ri:attachment ri:filename="a\u00a0b\u202fc.png" /></ac:image></td></tr></tbody></table>'
-    out = convert(xml)
-    assert '<img src="a b c.png" />' in out
-    assert '\u00a0' not in out
-    assert '\u202f' not in out
-
-
-def test_table_cell_ac_image_minimal():
-    xml = '<table><tbody><tr><td><ac:image><ri:attachment ri:filename="x.png" /></ac:image></td></tr></tbody></table>'
-    out = convert(xml)
-    assert '<img src="x.png" />' in out
-
-
-def test_table_cell_ac_image_with_width():
-    xml = '<table><tbody><tr><td><ac:image ac:width="450"><ri:attachment ri:filename="image.png" /></ac:image></td></tr></tbody></table>'
-    out = convert(xml)
-    assert '<img src="image.png" width="450" />' in out
-
-
-def test_table_cell_ac_image_with_width_and_height():
-    xml = '<table><tbody><tr><td><ac:image ac:width="450" ac:height="200"><ri:attachment ri:filename="image.png" /></ac:image></td></tr></tbody></table>'
-    out = convert(xml)
-    assert '<img src="image.png" width="450" height="200" />' in out
-
-
-def test_table_cell_ac_image_without_filename_falls_back_to_escape_and_logs():
-    xml = '<table><tbody><tr><td><ac:image><ri:url ri:value="https://x.com/y.png" /></ac:image></td></tr></tbody></table>'
-    from src.converter import Converter
-    c = Converter("MyPage")
-    out = c.convert(xml).strip()
-    assert "&lt;ac:image" in out
-    assert "<img" not in out
-    assert any("ac:image" in w and "MyPage" in w for w in c.warnings)
-
-
-def test_table_cell_strips_div_content_wrapper():
-    xml = '<table><tbody><tr><td><div class="content-wrapper"><span>x</span></div></td></tr></tbody></table>'
-    out = convert(xml)
-    assert "content-wrapper" not in out
-    assert "<div" not in out
-    assert "<td><span>x</span></td>" in out
-
-
-def test_table_cell_strips_p_around_ac_macro():
-    xml = '<table><tbody><tr><td><p><ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro></p></td></tr></tbody></table>'
-    out = convert(xml)
-    assert "&lt;ac:structured-macro" in out
-    out_first_p_stripped = out.split('<td>', 1)[1].split('</td>', 1)[0]
-    assert not out_first_p_stripped.startswith('<p>')
-
-
-def test_table_nested_table_recursively_prettified():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<table><tbody><tr><td>x</td></tr></tbody></table>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    expected = (
-        "<table>\n"
-        "    <tbody>\n"
-        "        <tr>\n"
-        "            <td><table>\n"
-        "                    <tbody>\n"
-        "                        <tr>\n"
-        "                            <td>x</td>\n"
-        "                        </tr>\n"
-        "                    </tbody>\n"
-        "                </table></td>\n"
-        "        </tr>\n"
-        "    </tbody>\n"
-        "</table>"
-    )
-    assert out == expected
-
-
-def test_table_nested_table_applies_full_clean_rules():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<table class="x"><colgroup><col/></colgroup><tbody><tr>'
-        '<td data-highlight-colour="grey" class="y">inner</td>'
-        '</tr></tbody></table>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert 'class="x"' not in out
-    assert 'class="y"' not in out
-    assert 'colgroup' not in out
-    assert 'data-highlight-colour' not in out
-    assert 'style="background-color: #F4F5F7;"' in out
-
-
-def test_table_nested_table_with_surrounding_text_stays_inline():
-    xml = (
-        '<table><tbody><tr><td>before'
-        '<table><tbody><tr><td>x</td></tr></tbody></table>'
-        'after</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert "<td>before<table>" in out
-    assert "</table>after</td>" in out
-
-
-def test_table_cell_drops_p_with_only_br():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<p>real</p>'
-        '<p><br/></p>'
-        '<p>more</p>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert "<td><p>real</p><p>more</p></td>" in out
-    assert "<br" not in out
-
-
-def test_table_cell_drops_auto_cursor_target_paragraph_regardless_of_attrs():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<p>a</p>'
-        '<p class="auto-cursor-target"><br /></p>'
-        '<p>b</p>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert "<td><p>a</p><p>b</p></td>" in out
-    assert "auto-cursor-target" not in out
-    assert "<br" not in out
-
-
-def test_table_cell_drops_p_with_multiple_brs():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<p>a</p><p><br/><br/></p><p>b</p>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert "<td><p>a</p><p>b</p></td>" in out
-
-
-def test_table_cell_keeps_p_with_text_and_br():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<p>hello<br/></p>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert "<p>hello<br/></p>" in out
-
-
-def test_table_cell_keeps_p_with_mixed_text_and_ac_macro():
-    xml = '<table><tbody><tr><td><p>before <ac:structured-macro ac:name="info"><ac:rich-text-body><p>n</p></ac:rich-text-body></ac:structured-macro> after</p></td></tr></tbody></table>'
-    out = convert(xml)
-    assert "<p>before " in out
-    assert " after</p>" in out
-    assert "&lt;ac:structured-macro" in out
-
-
-def test_table_cell_with_multiple_paragraphs_stays_inline():
-    xml = '<table><tbody><tr><td><p>a</p><p>b</p></td></tr></tbody></table>'
-    out = convert(xml)
-    assert "<td><p>a</p><p>b</p></td>" in out
-
-
-def test_table_cell_preserves_raw_text_newlines():
-    xml = '<table><tbody><tr><td>line1\nline2</td></tr></tbody></table>'
-    out = convert(xml)
-    assert "<td>line1\nline2</td>" in out
 
 
 def test_macro_code_with_language():
@@ -1330,6 +1392,57 @@ def test_macro_children_outside_list_single_wrap():
         "> ```"
     )
     assert expected in out
+
+
+def test_macro_children_after_paragraph_is_bare():
+    # No <li> ancestor AND no preceding list — emit bare dataview without
+    # the [!list-indent-undo] callout (nothing to indent-undo from).
+    xml = (
+        '<p>BEFORE</p>'
+        '<p class="auto-cursor-target"><ac:structured-macro ac:name="children" /></p>'
+    )
+    out = convert(xml)
+    assert out == (
+        "BEFORE\n"
+        "```dataview\n"
+        "LIST\n"
+        'FROM ""\n'
+        'WHERE file.folder = this.file.folder + "/" + this.file.name\n'
+        "```"
+    )
+    assert "[!list-indent-undo]" not in out
+
+
+def test_macro_children_after_ol_keeps_single_wrap():
+    # Preceded by <ol> (ordered list, not just <ul>) → still wrap.
+    xml = (
+        '<ol><li>ITEM</li></ol>'
+        '<p><ac:structured-macro ac:name="children" /></p>'
+    )
+    out = convert(xml)
+    assert "> [!list-indent-undo]" in out
+    assert "> ```dataview" in out
+
+
+def test_macro_children_orphan_is_bare():
+    # No preceding sibling at all → bare dataview.
+    xml = '<p><ac:structured-macro ac:name="children" /></p>'
+    out = convert(xml)
+    assert "[!list-indent-undo]" not in out
+    assert out.startswith("```dataview")
+
+
+def test_macro_children_after_paragraph_then_list_is_bare():
+    # Immediate prior sibling check — a list earlier in the document doesn't
+    # count if a paragraph sits between it and the macro.
+    xml = (
+        '<ul><li>EARLY</li></ul>'
+        '<p>SEPARATOR</p>'
+        '<p><ac:structured-macro ac:name="children" /></p>'
+    )
+    out = convert(xml)
+    assert "[!list-indent-undo]" not in out
+    assert "```dataview" in out
 
 
 def test_macro_children_inside_li_double_wrap_and_marker_dropped():
@@ -1501,6 +1614,47 @@ def test_li_with_only_image_drops_marker():
     assert "OUTER\n- \n>" not in out
 
 
+def test_empty_ac_link_self_closing_emits_self_link():
+    xml = '<p>before <ac:link/> after</p>'
+    out = convert(xml)
+    assert out == "before [[TestPage]] after"
+
+
+def test_empty_ac_link_empty_pair_emits_self_link():
+    xml = '<p>before <ac:link></ac:link> after</p>'
+    out = convert(xml)
+    assert out == "before [[TestPage]] after"
+
+
+def test_empty_ac_link_sanitizes_current_page_title():
+    xml = '<ac:link/>'
+    out = Converter("Design  v2", page_title="Design: v2").convert(xml).strip()
+    assert out == "[[Design： v2]]"
+
+
+def test_empty_ac_link_drops_collision_suffix():
+    xml = '<ac:link/>'
+    out = Converter("Foo (12345)", page_title="Foo").convert(xml).strip()
+    assert out == "[[Foo]]"
+
+
+def test_ac_link_with_unsupported_ri_user_target_unchanged():
+    xml = '<p>before <ac:link><ri:user ri:username="x"/></ac:link> after</p>'
+    out = convert(xml)
+    assert out == "before  after"
+    assert "[[TestPage]]" not in out
+
+
+def test_empty_ac_link_in_table_cell_self_links_via_document_mode():
+    # With document-mode cell rendering, empty <ac:link/> in a cell now self-links
+    # to the current page (same as at document level), not the old cell-context
+    # fallback of empty text. Behavior change introduced with the merge-table
+    # migration.
+    xml = '<table><tbody><tr><td>before <ac:link/> after</td></tr></tbody></table>'
+    out = convert(xml)
+    assert '"before [[TestPage]] after"' in out
+
+
 def test_inline_image_attachment():
     xml = '<ac:image><ri:attachment ri:filename="diagram.png" /></ac:image>'
     out = convert(xml, page_name="MyPage")
@@ -1535,12 +1689,42 @@ def test_inline_image_with_width_and_height_emits_w_x_h_suffix():
     assert out == "![[MyPage/image.png|400x250]]"
 
 
+def test_ac_link_to_attachment_emits_bare_filename_wiki_link():
+    # No per-page prefix — Obsidian resolves the wiki-link by name across the vault.
+    xml = '<ac:link><ri:attachment ri:filename="report.pdf" /></ac:link>'
+    out = convert(xml, page_name="MyPage")
+    assert out == "[[report.pdf]]"
+
+
+def test_ac_link_to_attachment_with_display_text_uses_pipe_separator():
+    # <ac:plain-text-link-body> CDATA becomes the display text after the | separator.
+    xml = (
+        '<ac:link>'
+        '<ri:attachment ri:filename="report.pdf" />'
+        '<ac:plain-text-link-body><![CDATA[Q1 Report]]></ac:plain-text-link-body>'
+        '</ac:link>'
+    )
+    out = convert(xml, page_name="MyPage")
+    assert out == "[[report.pdf|Q1 Report]]"
+
+
 def test_ac_link_to_attachment_normalizes_unicode_whitespace_in_filename():
+    # NBSP in the filename normalizes to ASCII space on both the wiki-link target
+    # and the on-disk filename — they must agree for Obsidian to resolve the link.
     nbsp = chr(0xa0)
     xml = f'<ac:link><ri:attachment ri:filename="My{nbsp}File.pdf" /></ac:link>'
     out = convert(xml, page_name="MyPage")
-    assert out == "[[MyPage/My File.pdf]]"
+    assert out == "[[My File.pdf]]"
     assert nbsp not in out
+
+
+def test_ac_link_to_attachment_in_table_cell_emits_bare_filename():
+    # Cell context goes through document-mode <ac:link> handler (post-merge-table),
+    # so the bare-filename rule applies inside cells too.
+    xml = '<table><tr><td><ac:link><ri:attachment ri:filename="a.pdf" /></ac:link></td></tr></table>'
+    out = convert(xml, page_name="MyPage")
+    assert '"[[a.pdf]]"' in out
+    assert '[[MyPage/a.pdf]]' not in out
 
 def test_image_with_ri_url_youtube():
     xml = '<ac:image><ri:url ri:value="https://youtube.com/watch?v=abc" /></ac:image>'
@@ -1774,7 +1958,7 @@ def test_macro_multimedia_emits_attachment_embed():
     assert out == "![[MyPage/clip.mp4]]"
 
 
-def test_macro_ui_tabs_emits_fenced_tabs_block():
+def test_macro_ui_tabs_emits_callout_block():
     xml = (
         '<ac:structured-macro ac:name="ui-tabs"><ac:rich-text-body>'
         '<p class="auto-cursor-target"><br /></p>'
@@ -1791,17 +1975,23 @@ def test_macro_ui_tabs_emits_fenced_tabs_block():
     )
     out = convert(xml).strip()
     expected = (
-        "~~~tabs\n"
-        "---tab Tab 1\n"
-        "Tab 1 content here\n"
-        "---tab Tab 2\n"
-        "Tab 2 content here\n"
-        "---tab Tab 3\n"
-        "Tab 3 content here\n"
-        "~~~"
+        "> [!tabs]\n"
+        ">\n"
+        "> === Tab 1\n"
+        ">\n"
+        "> Tab 1 content here\n"
+        ">\n"
+        "> === Tab 2\n"
+        ">\n"
+        "> Tab 2 content here\n"
+        ">\n"
+        "> === Tab 3\n"
+        ">\n"
+        "> Tab 3 content here"
     )
     assert out == expected
-    assert "<details>" not in out
+    assert "~~~tabs" not in out
+    assert "---tab" not in out
 
 
 def test_macro_ui_tabs_single_tab():
@@ -1812,10 +2002,12 @@ def test_macro_ui_tabs_single_tab():
         '</ac:rich-text-body></ac:structured-macro>'
     )
     out = convert(xml).strip()
-    assert out == "~~~tabs\n---tab Only\nbody\n~~~"
+    assert out == "> [!tabs]\n>\n> === Only\n>\n> body"
 
 
 def test_macro_ui_tabs_tab_body_renders_full_markdown():
+    # Each line of the tab body picks up `> ` prefix (callout-block convention),
+    # so list items and fenced blocks inside a tab are quoted into the [!tabs] callout.
     xml = (
         '<ac:structured-macro ac:name="ui-tabs"><ac:rich-text-body>'
         '<ac:structured-macro ac:name="ui-tab"><ac:parameter ac:name="title">T</ac:parameter>'
@@ -1827,11 +2019,27 @@ def test_macro_ui_tabs_tab_body_renders_full_markdown():
         '</ac:rich-text-body></ac:structured-macro>'
     )
     out = convert(xml)
-    assert "---tab T" in out
-    assert "- one" in out
-    assert "- two" in out
-    assert "```python" in out
-    assert "print(1)" in out
+    assert "> === T" in out
+    assert "> - one" in out
+    assert "> - two" in out
+    assert "> ```python" in out
+    assert "> print(1)" in out
+
+
+def test_macro_ui_tabs_with_nested_callout_body_double_quotes():
+    # An inner `> [!tip]` becomes `> > [!tip]` under the outer tabs callout
+    # because the per-line `> ` prefix nests naturally.
+    xml = (
+        '<ac:structured-macro ac:name="ui-tabs"><ac:rich-text-body>'
+        '<ac:structured-macro ac:name="ui-tab"><ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body>'
+        '<ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "> > [!info]" in out
+    assert "> > note" in out
 
 
 def test_macro_ui_tabs_drops_non_tab_content_silently():
@@ -1959,40 +2167,17 @@ def test_spacing_blank_line_between_paragraphs():
 def test_spacing_paragraph_wrapping_only_macro_is_unwrapped():
     xml = '<h1>Subpages</h1>\n<p><ac:structured-macro ac:name="children" /></p>'
     out = convert(xml)
-    # The wrapping <p> is unwrapped; the children macro renders with its
-    # standard single-level callout wrap (no <li> ancestor in source).
-    assert out.startswith("# Subpages\n> [!list-indent-undo]\n> ```dataview")
+    # The wrapping <p> is unwrapped; the children macro renders bare (no
+    # `[!list-indent-undo]` callout) because the preceding sibling at document
+    # level is <h1>, not a list — nothing to indent-undo from.
+    assert out.startswith("# Subpages\n```dataview")
+    assert "[!list-indent-undo]" not in out
 
 
 def test_spacing_pure_whitespace_text_between_blocks_ignored():
     xml = "<h1>A</h1>\n\n\n<h2>B</h2>"
     out = convert(xml)
     assert out == "# A\n## B"
-
-
-def test_cell_p_with_only_code_child_is_unwrapped():
-    xml = (
-        '<table><tbody><tr><td>'
-        '<p><code><span style="color: rgb(0,0,255);">S</span>'
-        '<span style="color: rgb(51,153,102);">EEEEEEE E</span>'
-        '<span style="color: rgb(255,0,0);">FFFFFFF FFFFFFFF FFFFFFFF</span></code></p>'
-        '</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert (
-        '<td><code><span style="color: rgb(0,0,255);">S</span>'
-        '<span style="color: rgb(51,153,102);">EEEEEEE E</span>'
-        '<span style="color: rgb(255,0,0);">FFFFFFF FFFFFFFF FFFFFFFF</span></code></td>'
-        in out
-    )
-    assert "<p>" not in out
-
-
-def test_cell_p_with_text_and_code_keeps_paragraph_wrap():
-    # Direct text inside <p> blocks the unwrap — paragraph survives in the cell.
-    xml = '<table><tbody><tr><td><p>before<code>X</code>after</p></td></tr></tbody></table>'
-    out = convert(xml)
-    assert "<td><p>before<code>X</code>after</p></td>" in out
 
 
 def test_p_with_only_code_child_is_unwrapped():
@@ -2030,136 +2215,467 @@ def test_unwrapped_p_glues_to_preceding_content_but_following_p_keeps_break():
     assert out == "before<code>X</code>\n\nafter"
 
 
-def test_spacing_blank_line_after_top_level_table_before_heading():
-    xml = "<table><tbody><tr><td>x</td></tr></tbody></table><h1>Next</h1>"
-    out = convert(xml)
-    assert "</table>\n\n# Next" in out
-
-
-def test_spacing_blank_line_after_top_level_table_before_list():
-    xml = "<table><tbody><tr><td>x</td></tr></tbody></table><ul><li>item</li></ul>"
-    out = convert(xml)
-    assert "</table>\n\n- item" in out
-
-
-def test_spacing_blank_line_between_two_top_level_tables():
-    xml = (
-        "<table><tbody><tr><td>1</td></tr></tbody></table>"
-        "<table><tbody><tr><td>2</td></tr></tbody></table>"
-    )
-    out = convert(xml)
-    assert "</table>\n\n<table>" in out
-
-
-def test_spacing_top_level_table_before_paragraph_no_blank_line():
-    xml = "<table><tbody><tr><td>x</td></tr></tbody></table><p>after</p>"
-    out = convert(xml)
-    assert "</table>\nafter" in out
-    assert "</table>\n\nafter" not in out
-
-
-def test_spacing_top_level_table_before_paragraph_collapses_p_br_cursor_park():
-    # Cursor-park <p><br/></p> between table and the following paragraph drops
-    # to empty, leaving table flush against the next paragraph (no blank line).
-    xml = (
-        "<p>before</p>"
-        "<table><tbody><tr><td>x</td></tr></tbody></table>"
-        "<p><br/></p>"
-        "<p>after</p>"
-    )
-    out = convert(xml)
-    assert "</table>\nafter" in out
-    assert "</table>\n\nafter" not in out
-
-
-def test_spacing_table_inside_info_callout_followed_by_heading_has_blank_quoted_line():
-    xml = (
-        '<ac:structured-macro ac:name="info"><ac:rich-text-body>'
-        '<table><tbody><tr><td>x</td></tr></tbody></table>'
-        '<h1>after</h1>'
-        '</ac:rich-text-body></ac:structured-macro>'
-    )
-    out = convert(xml)
-    assert "> </table>\n>\n> # after" in out
-
-
-def test_spacing_table_inside_warning_callout_followed_by_heading_has_blank_quoted_line():
-    xml = (
-        '<ac:structured-macro ac:name="warning"><ac:rich-text-body>'
-        '<table><tbody><tr><td>x</td></tr></tbody></table>'
-        '<h1>after</h1>'
-        '</ac:rich-text-body></ac:structured-macro>'
-    )
-    out = convert(xml)
-    assert "> </table>\n>\n> # after" in out
-
-
-def test_spacing_table_inside_info_callout_followed_by_paragraph_no_overquoting():
-    xml = (
-        '<ac:structured-macro ac:name="info"><ac:rich-text-body>'
-        '<table><tbody><tr><td>x</td></tr></tbody></table>'
-        '<p>after</p>'
-        '</ac:rich-text-body></ac:structured-macro>'
-    )
-    out = convert(xml)
-    # Inside-callout case: blank line between table and following paragraph
-    # is preserved (collapsing post-process runs at top level only, on the
-    # unquoted form — quoted-blank patterns inside a callout are not matched).
-    assert "> </table>\n>\n> after" in out
-    assert "> </table>\n>\n>\n>" not in out
-
-
-def test_spacing_table_inside_ui_tab_followed_by_heading_has_blank_line():
-    xml = (
-        '<ac:structured-macro ac:name="ui-tabs"><ac:rich-text-body>'
-        '<ac:structured-macro ac:name="ui-tab"><ac:parameter ac:name="title">T</ac:parameter>'
-        '<ac:rich-text-body>'
-        '<table><tbody><tr><td>x</td></tr></tbody></table>'
-        '<h1>after</h1>'
-        '</ac:rich-text-body></ac:structured-macro>'
-        '</ac:rich-text-body></ac:structured-macro>'
-    )
-    out = convert(xml)
-    assert "</table>\n\n# after" in out
-
-
-def test_spacing_table_inside_expand_body_followed_by_heading_has_blank_quoted_line():
-    xml = (
-        '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter>'
-        '<ac:rich-text-body>'
-        '<table><tbody><tr><td>x</td></tr></tbody></table>'
-        '<h1>after</h1>'
-        '</ac:rich-text-body></ac:structured-macro>'
-    )
-    out = convert(xml)
-    assert "> </table>\n>\n> # after" in out
-
-
-def test_spacing_table_inside_ui_expand_body_followed_by_heading_has_blank_quoted_line():
-    xml = (
-        '<ac:structured-macro ac:name="ui-expand"><ac:parameter ac:name="title">T</ac:parameter>'
-        '<ac:rich-text-body>'
-        '<table><tbody><tr><td>x</td></tr></tbody></table>'
-        '<h1>after</h1>'
-        '</ac:rich-text-body></ac:structured-macro>'
-    )
-    out = convert(xml)
-    assert "> </table>\n>\n> # after" in out
-
-
-def test_spacing_nested_table_in_cell_stays_flush_no_trailing_blank_line():
-    xml = (
-        '<table><tbody><tr><td>before'
-        '<table><tbody><tr><td>x</td></tr></tbody></table>'
-        'after</td></tr></tbody></table>'
-    )
-    out = convert(xml)
-    assert "</table>after</td>" in out
-
-
 def test_attachments_referenced_tracked():
     c = Converter("MyPage")
     c.convert('<ac:image><ri:attachment ri:filename="a.png" /></ac:image>')
     c.convert('<ac:image><ri:attachment ri:filename="b.png" /></ac:image>')
     assert "a.png" in c.attachments_referenced
     assert "b.png" in c.attachments_referenced
+
+
+# =============================================================================
+# merge-table tests (new tabular output format)
+# =============================================================================
+
+
+def test_merge_table_empty_emits_fenced_block_with_empty_rows():
+    xml = "<table></table>"
+    out = convert(xml)
+    assert out == "```merge-table\n{\n  \"rows\": []\n}\n```"
+
+
+def test_merge_table_single_text_cell_uses_string_shorthand():
+    xml = "<table><tr><td>hello</td></tr></table>"
+    out = convert(xml)
+    assert out == (
+        "```merge-table\n"
+        "{\n"
+        "  \"rows\": [\n"
+        "    [\n"
+        "      \"hello\"\n"
+        "    ]\n"
+        "  ]\n"
+        "}\n"
+        "```"
+    )
+
+
+def test_merge_table_th_gets_header_true_and_auto_tint():
+    xml = "<table><tr><th>H</th></tr></table>"
+    out = convert(xml)
+    assert "\"header\": true" in out
+    assert "\"bg\": \"#F4F5F7\"" in out
+    assert "\"content\": \"H\"" in out
+
+
+def test_merge_table_two_rows_two_cells_each():
+    xml = "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>"
+    out = convert(xml)
+    assert "\"a\"" in out and "\"b\"" in out and "\"c\"" in out and "\"d\"" in out
+    # rows are JSON-arrays containing the cells
+    import json
+    body = out.split("```merge-table\n", 1)[1].rsplit("\n```", 1)[0]
+    parsed = json.loads(body)
+    assert parsed == {"rows": [["a", "b"], ["c", "d"]]}
+
+
+# --- cell attribute mapping ---
+
+
+def test_merge_table_empty_cell_uses_empty_string_shorthand():
+    out = convert("<table><tr><td></td></tr></table>")
+    import json
+    body = out.split("```merge-table\n", 1)[1].rsplit("\n```", 1)[0]
+    assert json.loads(body) == {"rows": [[""]]}
+
+
+def test_merge_table_data_highlight_colour_becomes_bg():
+    out = convert('<table><tr><td data-highlight-colour="red">x</td></tr></table>')
+    assert '"bg": "red"' in out
+    assert '"content": "x"' in out
+
+
+def test_merge_table_data_highlight_colour_grey_remaps_to_hex():
+    out = convert('<table><tr><td data-highlight-colour="grey">x</td></tr></table>')
+    assert '"bg": "#F4F5F7"' in out
+
+
+def test_merge_table_style_background_color_becomes_bg():
+    out = convert('<table><tr><td style="background-color: yellow;">x</td></tr></table>')
+    assert '"bg": "yellow"' in out
+
+
+def test_merge_table_data_highlight_colour_overrides_style_background():
+    out = convert('<table><tr><td style="background-color: blue;" data-highlight-colour="red">x</td></tr></table>')
+    assert '"bg": "red"' in out
+    assert '"bg": "blue"' not in out
+
+
+def test_merge_table_style_color_becomes_color():
+    out = convert('<table><tr><td style="color: #ff0000;">x</td></tr></table>')
+    assert '"color": "#ff0000"' in out
+
+
+def test_merge_table_style_text_align_center_becomes_align():
+    out = convert('<table><tr><td style="text-align: center;">x</td></tr></table>')
+    assert '"align": "center"' in out
+
+
+def test_merge_table_style_text_align_justify_filtered_out():
+    out = convert('<table><tr><td style="text-align: justify;">x</td></tr></table>')
+    assert '"align"' not in out
+
+
+def test_merge_table_style_vertical_align_middle_becomes_valign():
+    out = convert('<table><tr><td style="vertical-align: middle;">x</td></tr></table>')
+    assert '"valign": "middle"' in out
+
+
+def test_merge_table_style_vertical_align_baseline_filtered_out():
+    out = convert('<table><tr><td style="vertical-align: baseline;">x</td></tr></table>')
+    assert '"valign"' not in out
+
+
+def test_merge_table_unsupported_style_declarations_dropped():
+    out = convert('<table><tr><td style="width: 200px; padding: 4px; font-family: serif;">x</td></tr></table>')
+    assert 'width' not in out
+    assert 'padding' not in out
+    assert 'font-family' not in out
+
+
+def test_merge_table_colspan_emits_attr_and_null_placeholders():
+    out = convert('<table><tr><td colspan="3">x</td></tr></table>')
+    import json
+    body = out.split("```merge-table\n", 1)[1].rsplit("\n```", 1)[0]
+    parsed = json.loads(body)
+    assert parsed == {"rows": [[{"content": "x", "colspan": 3}, None, None]]}
+
+
+def test_merge_table_rowspan_emits_attr_no_padding():
+    out = convert('<table><tr><td rowspan="2">x</td><td>y</td></tr><tr><td>z</td></tr></table>')
+    import json
+    body = out.split("```merge-table\n", 1)[1].rsplit("\n```", 1)[0]
+    parsed = json.loads(body)
+    assert parsed == {"rows": [[{"content": "x", "rowspan": 2}, "y"], ["z"]]}
+
+
+def test_merge_table_th_with_explicit_bg_skips_auto_tint():
+    out = convert('<table><tr><th data-highlight-colour="red">H</th></tr></table>')
+    assert '"bg": "red"' in out
+    assert '#F4F5F7' not in out
+
+
+def test_merge_table_table_style_becomes_tableStyle():
+    out = convert('<table style="width: 600px;"><tr><td>x</td></tr></table>')
+    assert '"tableStyle": "width: 600px;"' in out
+
+
+def test_merge_table_colgroup_stripped():
+    out = convert('<table><colgroup><col/><col/></colgroup><tr><td>x</td></tr></table>')
+    assert 'colgroup' not in out
+    assert 'col' not in out.replace('color', '').replace('color"', '').replace('colspan', '').replace('"content"', '').replace('null', '')
+
+
+def test_merge_table_caption_dropped_silently():
+    out = convert('<table><caption>Title here</caption><tr><td>x</td></tr></table>')
+    assert 'caption' not in out
+    assert 'Title here' not in out
+
+
+def test_merge_table_thead_tbody_tfoot_passthrough():
+    out = convert("<table><thead><tr><th>H</th></tr></thead><tbody><tr><td>x</td></tr></tbody></table>")
+    import json
+    body = out.split("```merge-table\n", 1)[1].rsplit("\n```", 1)[0]
+    parsed = json.loads(body)
+    assert parsed["rows"] == [
+        [{"content": "H", "header": True, "bg": "#F4F5F7"}],
+        ["x"],
+    ]
+
+
+# --- cell content via document-mode renderer ---
+
+
+def test_merge_table_cell_with_bold_uses_document_mode_strong():
+    out = convert("<table><tr><td><strong>hello</strong></td></tr></table>")
+    assert '"<strong>hello</strong>"' in out
+
+
+def test_merge_table_cell_with_inline_code_uses_html_code():
+    out = convert("<table><tr><td><code>x</code></td></tr></table>")
+    assert '"<code>x</code>"' in out
+
+
+def test_merge_table_cell_with_ac_link_emits_wiki_link():
+    xml = '<table><tr><td><ac:link><ri:page ri:content-title="Other Page" /></ac:link></td></tr></table>'
+    c = Converter("MyPage", title_map={"Other Page": "Other Page"})
+    out = c.convert(xml).strip()
+    assert '"[[Other Page]]"' in out
+
+
+def test_merge_table_cell_with_ac_image_emits_wiki_link_embed():
+    xml = '<table><tr><td><ac:image><ri:attachment ri:filename="a.png" /></ac:image></td></tr></table>'
+    c = Converter("MyPage")
+    out = c.convert(xml).strip()
+    assert '"![[MyPage/a.png]]"' in out
+
+
+def test_merge_table_cell_with_ac_image_with_width_carries_size_suffix():
+    xml = '<table><tr><td><ac:image ac:width="100"><ri:attachment ri:filename="a.png" /></ac:image></td></tr></table>'
+    c = Converter("MyPage")
+    out = c.convert(xml).strip()
+    assert '"![[MyPage/a.png|100]]"' in out
+
+
+def test_merge_table_cell_with_code_macro_emits_fenced_block():
+    xml = (
+        '<table><tr><td>'
+        '<ac:structured-macro ac:name="code">'
+        '<ac:parameter ac:name="language">py</ac:parameter>'
+        '<ac:plain-text-body><![CDATA[x = 1]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></table>'
+    )
+    out = convert(xml)
+    # JSON-encoded: ```py\nx = 1\n```
+    assert '"```py\\nx = 1\\n```"' in out
+
+
+def test_merge_table_cell_with_latex_inline_emits_inline_math():
+    xml = (
+        '<table><tr><td>'
+        '<ac:structured-macro ac:name="latex-inline">'
+        '<ac:plain-text-body><![CDATA[x^2]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></table>'
+    )
+    out = convert(xml)
+    assert '"$x^2$"' in out
+
+
+def test_merge_table_cell_with_latex_block_emits_inline_math_with_warning():
+    xml = (
+        '<table><tr><td>'
+        '<ac:structured-macro ac:name="latex-block">'
+        '<ac:plain-text-body><![CDATA[x]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></table>'
+    )
+    c = Converter("MyPage")
+    out = c.convert(xml).strip()
+    assert '"$x$"' in out
+    assert any("latex-block" in w and "MyPage" in w for w in c.warnings)
+
+
+def test_merge_table_cell_with_info_callout_emits_native_obsidian_callout():
+    xml = (
+        '<table><tr><td>'
+        '<ac:structured-macro ac:name="info">'
+        '<ac:rich-text-body><p>note</p></ac:rich-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></table>'
+    )
+    out = convert(xml)
+    assert '"> [!info]\\n> note"' in out
+
+
+def test_merge_table_cell_with_expand_emits_native_collapsible_callout():
+    xml = (
+        '<table><tr><td>'
+        '<ac:structured-macro ac:name="expand">'
+        '<ac:parameter ac:name="title">More</ac:parameter>'
+        '<ac:rich-text-body><p>body</p></ac:rich-text-body>'
+        '</ac:structured-macro>'
+        '</td></tr></table>'
+    )
+    out = convert(xml)
+    assert '"> [!expand]- More\\n> body"' in out
+
+
+def test_merge_table_cell_with_unknown_macro_drops_and_logs():
+    xml = (
+        '<table><tr><td>'
+        '<ac:structured-macro ac:name="custom-thing"/>'
+        '</td></tr></table>'
+    )
+    c = Converter("MyPage")
+    out = c.convert(xml).strip()
+    # No visible XML in cell
+    assert "&lt;ac:" not in out
+    assert "ac:name=\"custom-thing\"" not in out
+    # Empty cell → empty string shorthand
+    import json
+    body = out.split("```merge-table\n", 1)[1].rsplit("\n```", 1)[0]
+    assert json.loads(body) == {"rows": [[""]]}
+    # And the unknown-macro list captures it
+    assert "custom-thing" in c.unknown_macros
+
+
+def test_merge_table_cell_with_nested_table_uses_object_content():
+    xml = (
+        '<table><tr><td>'
+        '<table><tr><td>inner</td></tr></table>'
+        '</td></tr></table>'
+    )
+    out = convert(xml)
+    import json
+    body = out.split("```merge-table\n", 1)[1].rsplit("\n```", 1)[0]
+    parsed = json.loads(body)
+    assert parsed == {"rows": [[{"content": {"rows": [["inner"]]}}]]}
+
+
+def test_merge_table_cell_with_prose_then_nested_table_uses_array_content():
+    xml = (
+        '<table><tr><td>'
+        '<p>before</p>'
+        '<table><tr><td>inner</td></tr></table>'
+        '</td></tr></table>'
+    )
+    out = convert(xml)
+    import json
+    body = out.split("```merge-table\n", 1)[1].rsplit("\n```", 1)[0]
+    parsed = json.loads(body)
+    assert parsed == {"rows": [[{"content": ["before", {"rows": [["inner"]]}]}]]}
+
+
+def test_merge_table_cell_with_prose_table_prose_uses_three_element_array():
+    xml = (
+        '<table><tr><td>'
+        '<p>before</p>'
+        '<table><tr><td>inner</td></tr></table>'
+        '<p>after</p>'
+        '</td></tr></table>'
+    )
+    out = convert(xml)
+    import json
+    body = out.split("```merge-table\n", 1)[1].rsplit("\n```", 1)[0]
+    parsed = json.loads(body)
+    assert parsed == {"rows": [[{"content": ["before", {"rows": [["inner"]]}, "after"]}]]}
+
+
+# --- tag-only <p> single-<a> carve-out ---
+
+
+def test_tag_only_p_with_single_a_promotes_to_real_paragraph():
+    # A <p> whose only direct Tag child is <a> is NOT cursor-park-unwrapped —
+    # it renders as a real paragraph with full \n\n leading spacing.
+    xml = '<p>TODO</p><p><a href="LINK">DISPLAY</a></p>'
+    out = convert(xml)
+    assert out == "TODO\n\n[DISPLAY](LINK)"
+
+
+def test_p_with_inline_a_after_text_still_works():
+    # Mixed-content <p> (text + <a>) is NOT tag-only — falls through to normal
+    # <p> rendering. No behavior change from this fix; included as regression.
+    xml = '<p>TODO<a href="LINK">DISPLAY</a></p>'
+    out = convert(xml)
+    assert out == "TODO[DISPLAY](LINK)"
+
+
+def test_tag_only_p_with_single_a_and_decorative_br_still_promotes():
+    # <br> is decorative for the tag-only check, so single-<a>+<br> still has
+    # exactly one meaningful Tag child (<a>) → promotes.
+    xml = '<p>TODO</p><p><a href="LINK">DISPLAY</a><br/></p>'
+    out = convert(xml)
+    assert out == "TODO\n\n[DISPLAY](LINK)"
+
+
+def test_tag_only_p_with_two_a_children_still_unwraps_as_cursor_park():
+    # Multi-link <p> stays in the standard cursor-park unwrap path — the
+    # carve-out is narrow ("single direct Tag child is <a>").
+    xml = '<p>before</p><p><a href="u1">X</a> <a href="u2">Y</a></p>'
+    out = convert(xml)
+    assert out == "before[X](u1) [Y](u2)"
+
+
+def test_tag_only_p_with_strong_then_a_still_unwraps_as_cursor_park():
+    # Mixed-tag <p> (strong + a) stays in the cursor-park unwrap path.
+    xml = '<p>before</p><p><strong>BOLD</strong><a href="u">LINK</a></p>'
+    out = convert(xml)
+    assert out == "before<strong>BOLD</strong>[LINK](u)"
+
+
+# --- tag-only <p> single embed-macro carve-out (extends single-<a> rule) ---
+
+
+def test_tag_only_p_with_widget_macro_promotes_to_real_paragraph():
+    # Mirrors the single-<a> carve-out: a <p> whose only direct Tag child is a
+    # widget macro renders as a real paragraph, not cursor-park-unwrapped.
+    xml = (
+        '<h1><span>HEADER</span></h1>'
+        '<p><ac:structured-macro ac:name="widget">'
+        '<ac:parameter ac:name="url">'
+        '<ri:url ri:value="https://www.youtube.com/watch?v=6htbyY3rH1w" />'
+        '</ac:parameter></ac:structured-macro></p>'
+    )
+    out = convert(xml)
+    assert out == "# HEADER\n\n![](https://www.youtube.com/watch?v=6htbyY3rH1w)"
+
+
+def test_widget_inline_in_heading_stays_inline():
+    # Widget INSIDE the <h1> stays inline with the heading text (regression —
+    # this case already worked; new carve-out shouldn't break it).
+    xml = (
+        '<h1><span style="font-size: 24.0px;">HEADER</span>'
+        '<ac:structured-macro ac:name="widget">'
+        '<ac:parameter ac:name="url">'
+        '<ri:url ri:value="https://www.youtube.com/watch?v=6htbyY3rH1w" />'
+        '</ac:parameter></ac:structured-macro></h1>'
+    )
+    out = convert(xml)
+    assert out == "# HEADER![](https://www.youtube.com/watch?v=6htbyY3rH1w)"
+
+
+def test_tag_only_p_with_view_file_macro_promotes_to_real_paragraph():
+    xml = (
+        '<p>before</p>'
+        '<p><ac:structured-macro ac:name="view-file">'
+        '<ac:parameter ac:name="name">'
+        '<ri:attachment ri:filename="doc.pdf" />'
+        '</ac:parameter></ac:structured-macro></p>'
+    )
+    out = convert(xml, page_name="MyPage")
+    assert out == "before\n\n![[MyPage/doc.pdf]]"
+
+
+def test_tag_only_p_with_multimedia_macro_promotes_to_real_paragraph():
+    xml = (
+        '<p>before</p>'
+        '<p><ac:structured-macro ac:name="multimedia">'
+        '<ac:parameter ac:name="name">'
+        '<ri:attachment ri:filename="clip.mp4" />'
+        '</ac:parameter></ac:structured-macro></p>'
+    )
+    out = convert(xml, page_name="MyPage")
+    assert out == "before\n\n![[MyPage/clip.mp4]]"
+
+
+def test_tag_only_p_with_info_macro_still_cursor_park_unwraps():
+    # Block-shaped macros (info / warning / expand / code etc.) already begin
+    # with \n so they self-separate. Cursor-park unwrap is correct for them —
+    # the carve-out must NOT extend here.
+    xml = (
+        '<p>before</p>'
+        '<p><ac:structured-macro ac:name="info">'
+        '<ac:rich-text-body><p>note</p></ac:rich-text-body>'
+        '</ac:structured-macro></p>'
+    )
+    out = convert(xml)
+    assert out == "before\n> [!info]\n> note"
+
+
+def test_tag_only_p_with_two_widgets_stays_cursor_park_unwrap():
+    # Multi-embed shapes (rare) stay in the cursor-park unwrap path — the
+    # carve-out predicate is narrow ("single direct meaningful Tag child").
+    xml = (
+        '<p>before</p>'
+        '<p>'
+        '<ac:structured-macro ac:name="widget"><ac:parameter ac:name="url"><ri:url ri:value="u1" /></ac:parameter></ac:structured-macro>'
+        '<ac:structured-macro ac:name="widget"><ac:parameter ac:name="url"><ri:url ri:value="u2" /></ac:parameter></ac:structured-macro>'
+        '</p>'
+    )
+    out = convert(xml)
+    assert out == "before![](u1)![](u2)"
+
+
+def test_tag_only_p_with_latex_inline_still_cursor_park_unwraps():
+    # latex-inline is explicitly excluded — $X$ shape is ambiguous (standalone
+    # equation vs. cursor-parked inline math); err on cursor-park.
+    xml = (
+        '<p>before</p>'
+        '<p><ac:structured-macro ac:name="latex-inline">'
+        '<ac:plain-text-body><![CDATA[x^2]]></ac:plain-text-body>'
+        '</ac:structured-macro></p>'
+    )
+    out = convert(xml)
+    assert out == "before$x^2$"
