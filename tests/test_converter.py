@@ -84,18 +84,18 @@ def test_inject_list_placeholders_recursive_for_deeper_jump():
     assert _inject_list_placeholders(src) == expected
 
 
-def test_adjacent_ordered_lists_with_cursor_park_break_inserts_blockquote_separator():
-    # Confluence emits a cursor-park <p><br/></p> between two <ol>s; the empty
-    # paragraph is dropped, so without the separator the two lists merge into
-    # one in Obsidian. The post-process inserts an empty-blockquote breaker.
+def test_adjacent_ordered_lists_with_cursor_park_break_inserts_br_separator():
+    # Cursor-park <p><br/></p> between two same-type list siblings emits a
+    # literal <br> separator (instead of dropping to empty), which breaks
+    # CommonMark's list-merge. The existing `> ` blockquote separator no longer
+    # fires here (the output is no longer directly adjacent — the <br> sits
+    # between).
     xml = (
         '<ol><li>HELLO</li><li>WORLD</li></ol>'
         '<p><br /></p>'
         '<ol><li>HELLO</li><li>WORLD</li></ol>'
     )
-    # The list→quote collapse removes the blank line BEFORE the separator's `> `;
-    # the trailing blank+next-list pair is preserved.
-    assert convert(xml) == "1. HELLO\n2. WORLD\n> \n\n1. HELLO\n2. WORLD"
+    assert convert(xml) == "1. HELLO\n2. WORLD\n<br>\n1. HELLO\n2. WORLD"
 
 
 def test_single_ordered_list_does_not_get_blockquote_separator():
@@ -303,7 +303,10 @@ def test_ordered_list_empty_item_with_block_content_drops_marker():
     assert out == expected
 
 
-def test_list_item_with_block_content_logs_warning():
+def test_list_item_with_block_content_no_longer_logs_warning():
+    # The "list item with block content (hoisted to column 0)" warning was
+    # dropped entirely — too noisy to be useful, and the visible orphan `- `
+    # line in the output is already the cleanup signal.
     from src.converter import Converter
     xml = (
         '<ul><li>text'
@@ -313,7 +316,8 @@ def test_list_item_with_block_content_logs_warning():
     )
     c = Converter('MyPage')
     c.convert(xml)
-    assert any("MyPage" in w and "list item" in w.lower() for w in c.warnings)
+    assert not any("list item" in w.lower() for w in c.warnings)
+    assert not any("hoisted" in w.lower() for w in c.warnings)
 
 
 def test_list_item_inline_only_unchanged_no_warning():
@@ -596,23 +600,24 @@ def test_paragraph_with_margin_left_80px_alone_still_emits_depth_one():
 
 def test_tag_only_p_with_colored_span_only_preserves_break():
     # Colored <span> direct child of tag-only <p> (no nested formatting inside
-    # the span) still preserves the paragraph break via single `\n`. Broadens
-    # last turn's rule which required nested-tag descendants.
+    # the span) still preserves the paragraph break via single `\n`. The
+    # dark-gray rgb(51,51,51) wrapper itself drops per the Text-color dark-gray
+    # carve-out, leaving just the inner text — the paragraph break (\n) survives
+    # because the colored-span carve-out fires regardless of whether the wrapper
+    # is dropped.
     xml = (
         '<h1><span style="color: rgb(51,51,51);">HEADER</span></h1>'
         '<p><span style="color: rgb(51,51,51);">TEXT</span></p>'
     )
     out = convert(xml)
-    assert out == (
-        '# <font style="color: rgb(51,51,51);">HEADER</font>\n'
-        '<font style="color: rgb(51,51,51);">TEXT</font>'
-    )
+    assert out == "# HEADER\nTEXT"
 
 
 def test_heading_then_text_then_indent_then_text_full_shape():
     # User's Example 2: heading, plain-colored-paragraph, indented paragraph,
     # plain-colored-paragraph. The indented one becomes a single-depth callout
-    # surrounded by blank-line paragraph spacing on both sides.
+    # surrounded by blank-line paragraph spacing on both sides. The dark-gray
+    # rgb(51,51,51) <font> wrappers all drop per the dark-gray carve-out.
     xml = (
         '<h1><span style="color: rgb(51,51,51);">HEADER</span></h1>'
         '<p><span style="color: rgb(51,51,51);">TEXT_1</span></p>'
@@ -621,13 +626,13 @@ def test_heading_then_text_then_indent_then_text_full_shape():
     )
     out = convert(xml)
     assert out == (
-        '# <font style="color: rgb(51,51,51);">HEADER</font>\n'
-        '<font style="color: rgb(51,51,51);">TEXT\\_1</font>\n'
+        '# HEADER\n'
+        'TEXT\\_1\n'
         '\n'
         '> [!indent]\n'
-        '> <font style="color: rgb(51,51,51);">INDENTED\\_TEXT</font>\n'
+        '> INDENTED\\_TEXT\n'
         '\n'
-        '<font style="color: rgb(51,51,51);">TEXT\\_2</font>'
+        'TEXT\\_2'
     )
 
 
@@ -803,10 +808,9 @@ def test_tag_only_p_with_nested_formatting_preserves_break_single_newline():
         '<p><span style="color: rgb(51,51,51);"><strong>TEXT</strong></span></p>'
     )
     out = convert(xml)
-    assert out == (
-        '# <font style="color: rgb(51,51,51);">HEADER</font>\n'
-        '<font style="color: rgb(51,51,51);"><strong>TEXT</strong></font>'
-    )
+    # rgb(51,51,51) is dark-gray and drops; only the <strong> wrapper survives
+    # inside the carve-out's single-\n separator.
+    assert out == "# HEADER\n<strong>TEXT</strong>"
 
 
 def test_tag_only_p_with_single_inline_no_nesting_still_unwraps():
@@ -1281,15 +1285,22 @@ def test_colored_span_wrapping_inline_text_keeps_font_wrapper():
 def test_colored_span_preserves_trailing_whitespace_in_content():
     # Confluence syntax-highlighted code wraps tokens in <span style="color:...">
     # — trailing space inside a span MUST survive so tokens don't glue together.
+    # The rgb(0,0,0) wrapper drops per the dark-gray carve-out, but the space
+    # survives as plain text inside <code>; the rgb(102,102,0) wrapper is kept
+    # (max=102 > 88 threshold).
     xml = '<code><span style="color: rgb(0,0,0);">refresh </span><span style="color: rgb(102,102,0);">-</span></code>'
     out = convert(xml)
-    assert out == '<code><font style="color: rgb(0,0,0);">refresh </font><font style="color: rgb(102,102,0);">-</font></code>'
+    assert out == '<code>refresh <font style="color: rgb(102,102,0);">-</font></code>'
 
 
 def test_colored_span_preserves_leading_whitespace_in_content():
-    xml = '<code><span style="color: rgb(0,0,0);"> hello</span></code>'
+    # When the colored span is non-dark-gray, the <font> wrapper survives and
+    # protects the leading whitespace from <code>'s _inline strip. (Dark-gray
+    # spans inside <code> with edge whitespace lose the whitespace as a
+    # known regression of the dark-gray carve-out — see CONTEXT.md.)
+    xml = '<code><span style="color: rgb(255,0,0);"> hello</span></code>'
     out = convert(xml)
-    assert out == '<code><font style="color: rgb(0,0,0);"> hello</font></code>'
+    assert out == '<code><font style="color: rgb(255,0,0);"> hello</font></code>'
 
 
 def test_colored_span_wrapping_sole_code_swaps_to_code_outer():
@@ -1805,18 +1816,6 @@ def test_macro_expand_callout_title_not_html_escaped():
     out = convert(xml)
     assert "> [!expand]- a < b\n> x" in out
     assert "&lt;" not in out
-
-
-def test_macro_expand_empty_body_still_emits_header():
-    xml = '<ac:structured-macro ac:name="expand"><ac:parameter ac:name="title">T</ac:parameter><ac:rich-text-body></ac:rich-text-body></ac:structured-macro>'
-    out = convert(xml).strip()
-    assert out == "> [!expand]- T"
-
-
-def test_macro_ui_expand_empty_body_still_emits_header():
-    xml = '<ac:structured-macro ac:name="ui-expand"><ac:parameter ac:name="title">T</ac:parameter><ac:rich-text-body></ac:rich-text-body></ac:structured-macro>'
-    out = convert(xml).strip()
-    assert out == "> [!expand-ui]- T"
 
 
 def test_macro_expand_body_renders_full_markdown_inside_callout():
@@ -2679,3 +2678,335 @@ def test_tag_only_p_with_latex_inline_still_cursor_park_unwraps():
     )
     out = convert(xml)
     assert out == "before$x^2$"
+
+
+# --- empty <font> drop, dark-gray <font> drop, empty expand placeholder ---
+
+
+def test_empty_colored_span_drops_font_wrapper():
+    out = convert('<p>before<span style="color: red;"></span>after</p>')
+    assert out == "beforeafter"
+    assert "<font" not in out
+
+
+def test_whitespace_only_colored_span_drops_font_wrapper():
+    out = convert('<p>before<span style="color: red;">   </span>after</p>')
+    assert out == "beforeafter"
+    assert "<font" not in out
+
+
+def test_dark_gray_rgb_0_0_0_drops_font_wrapper():
+    out = convert('<p>before<span style="color: rgb(0,0,0);">X</span>after</p>')
+    assert out == "beforeXafter"
+    assert "<font" not in out
+
+
+def test_dark_gray_rgb_51_51_51_drops_font_wrapper():
+    out = convert('<p>before<span style="color: rgb(51,51,51);">X</span>after</p>')
+    assert out == "beforeXafter"
+
+
+def test_dark_gray_at_threshold_88_drops_font_wrapper():
+    out = convert('<p><span style="color: rgb(88,88,88);">X</span></p>')
+    assert out == "X"
+
+
+def test_just_over_threshold_keeps_font_wrapper():
+    # max(R,G,B) = 89 → above the ≤88 threshold; wrapper kept.
+    out = convert('<p><span style="color: rgb(89,88,88);">X</span></p>')
+    assert '<font style="color: rgb(89,88,88);">X</font>' in out
+
+
+def test_bright_color_keeps_font_wrapper():
+    out = convert('<p><span style="color: rgb(255,0,0);">X</span></p>')
+    assert '<font style="color: rgb(255,0,0);">X</font>' in out
+
+
+def test_named_color_keeps_font_wrapper():
+    # Named colors (not rgb()) are conservatively treated as non-dark-gray —
+    # wrapper kept.
+    out = convert('<p><span style="color: red;">X</span></p>')
+    assert '<font style="color: red;">X</font>' in out
+
+
+def test_hex_color_keeps_font_wrapper():
+    # Hex colors (not rgb()) are conservatively treated as non-dark-gray.
+    out = convert('<p><span style="color: #000000;">X</span></p>')
+    assert '<font style="color: #000000;">X</font>' in out
+
+
+def test_dark_gray_inside_non_dark_gray_keeps_both_wrappers():
+    # The inner dark-gray <span> is an intentional override of the outer red;
+    # the carve-out fires (ancestor has non-dark-gray color), keep both wrappers.
+    out = convert('<p><span style="color: red;"><span style="color: rgb(0,0,0);">X</span></span></p>')
+    assert '<font style="color: red;"><font style="color: rgb(0,0,0);">X</font></font>' in out
+
+
+def test_dark_gray_inside_dark_gray_drops_both_wrappers():
+    # Both inner and outer are dark gray; neither has a non-dark-gray ancestor
+    # → both wrappers dropped.
+    out = convert('<p><span style="color: rgb(0,0,0);"><span style="color: rgb(50,50,50);">X</span></span></p>')
+    assert out == "X"
+    assert "<font" not in out
+
+
+def test_dark_gray_with_whitespace_in_rgb_drops_font_wrapper():
+    # rgb(0, 0, 0) with spaces — parser must be whitespace-tolerant.
+    out = convert('<p><span style="color: rgb(0, 0, 0);">X</span></p>')
+    assert out == "X"
+
+
+def test_dark_gray_with_multi_decl_style_drops_font_wrapper():
+    # style has multiple declarations; only color: matters.
+    out = convert('<p><span style="font-weight: bold; color: rgb(0,0,0); padding: 4px;">X</span></p>')
+    assert out == "X"
+
+
+def test_dark_gray_sole_code_child_drops_font_keeps_code():
+    # The sole-code-child normalization would put <font> inside <code>; with
+    # dark-gray drop the font goes away entirely, leaving just <code>X</code>.
+    out = convert('<p><span style="color: rgb(0,0,0);"><code>X</code></span></p>')
+    assert out == "<code>X</code>"
+    assert "<font" not in out
+
+
+def test_non_dark_gray_sole_code_child_keeps_font_inside_code():
+    out = convert('<p><span style="color: red;"><code>X</code></span></p>')
+    assert '<code><font style="color: red;">X</font></code>' in out
+
+
+def test_expand_with_empty_body_uses_todo_placeholder():
+    xml = (
+        '<ac:structured-macro ac:name="expand">'
+        '<ac:parameter ac:name="title">More info</ac:parameter>'
+        '<ac:rich-text-body></ac:rich-text-body>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert out == "> [!expand]- More info\n> TODO"
+
+
+def test_ui_expand_with_empty_body_uses_todo_placeholder():
+    xml = (
+        '<ac:structured-macro ac:name="ui-expand">'
+        '<ac:parameter ac:name="title">More info</ac:parameter>'
+        '<ac:rich-text-body></ac:rich-text-body>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert out == "> [!expand-ui]- More info\n> TODO"
+
+
+def test_expand_with_no_title_and_empty_body_uses_default_title_and_todo():
+    xml = (
+        '<ac:structured-macro ac:name="expand">'
+        '<ac:rich-text-body></ac:rich-text-body>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert out == "> [!expand]- Click here to expand...\n> TODO"
+
+
+def test_expand_with_whitespace_only_body_uses_todo_placeholder():
+    xml = (
+        '<ac:structured-macro ac:name="expand">'
+        '<ac:parameter ac:name="title">T</ac:parameter>'
+        '<ac:rich-text-body>   </ac:rich-text-body>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert out == "> [!expand]- T\n> TODO"
+
+
+# --- <p><br/></p> as same-type list separator ---
+
+
+def test_cursor_park_p_br_between_two_uls_emits_br_separator():
+    # User's scenario: <ul></ul><p><br/></p><ul></ul> would normally render
+    # as two adjacent `- ` lists that Markdown merges. The <br> separator
+    # breaks the merge.
+    xml = (
+        '<ul style="list-style-type: square;"><li>BEFORE</li></ul>'
+        '<p><br /></p>'
+        '<ul style="list-style-type: square;"><li>AFTER</li></ul>'
+    )
+    assert convert(xml) == "- BEFORE\n<br>\n- AFTER"
+
+
+def test_cursor_park_p_br_between_two_uls_no_list_style_also_works():
+    # The list-style-type attribute is irrelevant — any same-type list adjacency
+    # via <p><br/></p> triggers the carve-out.
+    xml = (
+        '<ul><li>BEFORE</li></ul>'
+        '<p><br /></p>'
+        '<ul><li>AFTER</li></ul>'
+    )
+    assert convert(xml) == "- BEFORE\n<br>\n- AFTER"
+
+
+def test_single_ul_with_multiple_li_unchanged():
+    # User's scenario 2: single <ul> with multiple <li>s renders as one
+    # tight bulleted list, no <br> separator (no merge concern).
+    xml = (
+        '<ul style="list-style-type: square;"><li>BEFORE</li><li>AFTER</li></ul>'
+    )
+    assert convert(xml) == "- BEFORE\n- AFTER"
+
+
+def test_cursor_park_p_br_between_ul_and_ol_drops_to_empty():
+    # Mixed-type adjacency (<ul> ↔ <ol>) has no merge concern (different
+    # markers). The cursor-park drops to empty as before — no <br> emitted.
+    xml = (
+        '<ul><li>BULLET</li></ul>'
+        '<p><br /></p>'
+        '<ol><li>NUMBER</li></ol>'
+    )
+    out = convert(xml)
+    assert "<br>" not in out
+    assert out == "- BULLET\n\n1. NUMBER"
+
+
+def test_cursor_park_p_br_between_ul_and_heading_drops_to_empty():
+    # List followed by heading: no merge concern. Cursor-park drops normally.
+    xml = (
+        '<ul><li>X</li></ul>'
+        '<p><br /></p>'
+        '<h1>Heading</h1>'
+    )
+    out = convert(xml)
+    assert "<br>" not in out
+    assert out == "- X\n\n# Heading"
+
+
+def test_cursor_park_p_br_standalone_still_drops_to_empty():
+    # A <p><br/></p> not between two same-type lists still drops to empty,
+    # the original cursor-park behavior. Surrounding paragraphs are preserved.
+    xml = '<p>before</p><p><br /></p><p>after</p>'
+    out = convert(xml)
+    assert "<br>" not in out
+    assert out == "before\n\nafter"
+
+
+# --- <em>/<strong> boundary-\n strip (drop <br/> at start/end of formatting) ---
+
+
+def test_em_with_trailing_br_strips_to_em_only():
+    out = convert("<p><em>ONE<br/></em></p>")
+    assert out == "<em>ONE</em>"
+
+
+def test_em_with_leading_br_strips_to_em_only():
+    out = convert("<p><em><br/>ONE</em></p>")
+    assert out == "<em>ONE</em>"
+
+
+def test_strong_with_trailing_br_strips_to_strong_only():
+    out = convert("<p><strong>ONE<br/></strong></p>")
+    assert out == "<strong>ONE</strong>"
+
+
+def test_em_with_midcontent_br_preserves_line_break():
+    # Real interior <br/> (intentional line break inside italics) must survive.
+    out = convert("<p><em>line1<br/>line2</em></p>")
+    assert out == "<em>line1\nline2</em>"
+
+
+def test_em_boundary_space_still_preserved_after_br_strip():
+    # The strip is targeted at \n; ASCII spaces at the boundary still survive
+    # so the existing syntax-preservation behavior is intact.
+    out = convert("<p><em> world. </em></p>")
+    assert out == "<em> world. </em>"
+
+
+def test_em_with_only_br_unwraps_via_whitespace_only_carveout():
+    # Inner is "\n" → strip() is empty → falls into the existing whitespace-only
+    # carve-out which drops the wrapper. (The boundary-\n strip predicate
+    # doesn't fire because the whitespace-only check runs first.)
+    out = convert("<p>before<em><br/></em>after</p>")
+    assert "<em>" not in out
+
+
+def test_colored_span_em_br_composite_keeps_font_wrapper():
+    # User's exact scenario: <li><p><span color><em>ONE<br/></em></span></p></li>
+    # — the boundary-\n strip inside <em> means the <span> sees inner without
+    # any \n, so the block-content-unwrap heuristic doesn't fire and the <font>
+    # wrapper survives.
+    xml = (
+        '<ul>'
+        '<li><p><span style="color: rgb(128,128,128);"><em>ONE<br /></em></span></p></li>'
+        '<li><span style="color: rgb(128,128,128);"><em>TWO</em></span></li>'
+        '</ul>'
+    )
+    out = convert(xml)
+    assert out == (
+        '- <font style="color: rgb(128,128,128);"><em>ONE</em></font>\n'
+        '- <font style="color: rgb(128,128,128);"><em>TWO</em></font>'
+    )
+
+
+# --- colored-span / nested-formatting <p> carve-out: heading-only tight ---
+
+
+def test_expand_callout_then_colored_span_p_emits_blank_line():
+    # User's scenario: expand callout (no trailing blank line) followed by a
+    # colored-span <p>. The carve-out's old "always \n" behavior glued the
+    # paragraph onto the callout's last line; the new rule (\n only when prev
+    # is heading) falls through to standard \n\n.
+    xml = (
+        '<ac:structured-macro ac:name="expand"><ac:rich-text-body>'
+        '<p>INSIDE</p></ac:rich-text-body></ac:structured-macro>'
+        '<p><span style="color: rgb(32,33,36);">OUTSIDE</span></p>'
+    )
+    out = convert(xml)
+    assert out == (
+        "> [!expand]- Click here to expand...\n"
+        "> INSIDE\n"
+        "\n"
+        "OUTSIDE"
+    )
+
+
+def test_plain_p_then_colored_span_p_emits_blank_line():
+    # Two consecutive paragraphs (second is colored-span carve-out) get the
+    # standard \n\n separator, NOT the tight \n that the old rule used.
+    xml = (
+        '<p>FIRST</p>'
+        '<p><span style="color: rgb(255,0,0);">SECOND</span></p>'
+    )
+    out = convert(xml)
+    assert out == "FIRST\n\n<font style=\"color: rgb(255,0,0);\">SECOND</font>"
+
+
+def test_list_then_colored_span_p_emits_blank_line():
+    xml = (
+        '<ul><li>X</li></ul>'
+        '<p><span style="color: rgb(255,0,0);">AFTER</span></p>'
+    )
+    out = convert(xml)
+    assert out == "- X\n\n<font style=\"color: rgb(255,0,0);\">AFTER</font>"
+
+
+def test_heading_then_colored_span_p_stays_tight():
+    # Regression: the heading-tight case still produces single \n separator.
+    xml = (
+        '<h1><span style="color: rgb(51,51,51);">HEADER</span></h1>'
+        '<p><span style="color: rgb(51,51,51);">TEXT</span></p>'
+    )
+    out = convert(xml)
+    assert out == "# HEADER\nTEXT"
+
+
+def test_heading_then_nested_formatting_p_stays_tight():
+    # Regression: the nested-formatting branch of the carve-out (e.g.,
+    # <strong><em>X</em></strong>) also stays tight when preceded by a heading.
+    xml = '<h2>HEAD</h2><p><strong><em>X</em></strong></p>'
+    out = convert(xml)
+    assert out == "## HEAD\n<strong><em>X</em></strong>"
+
+
+def test_document_start_colored_span_p_renders_as_standard_paragraph():
+    # No previous sibling at all. Carve-out falls through to standard <p>
+    # (\n\n lead, which strips at document start).
+    xml = '<p><span style="color: rgb(255,0,0);">ONLY</span></p>'
+    out = convert(xml)
+    assert out == "<font style=\"color: rgb(255,0,0);\">ONLY</font>"

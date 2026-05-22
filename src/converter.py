@@ -33,6 +33,10 @@ _LIST_BLANK_BEFORE_FENCE_RE = re.compile(
     r'(^\t*(?:- |\d+\. )[^\n]*)\n\n(```)',
     re.MULTILINE,
 )
+_LIST_BR_LIST_RE = re.compile(
+    r'(^\t*(?:- |\d+\. )[^\n]*)\n\n<br>\n\n(\t*(?:- |\d+\. ))',
+    re.MULTILINE,
+)
 
 
 def _break_adjacent_ordered_lists(text: str) -> str:
@@ -45,6 +49,10 @@ def _collapse_blank_between_list_and_quote(text: str) -> str:
 
 def _collapse_blank_between_list_and_fence(text: str) -> str:
     return _LIST_BLANK_BEFORE_FENCE_RE.sub(r'\1\n\2', text)
+
+
+def _collapse_blanks_around_br_between_lists(text: str) -> str:
+    return _LIST_BR_LIST_RE.sub(r'\1\n<br>\n\2', text)
 
 
 _INDENT_MARKER_RE = re.compile(r'<<INDENT:(\d+)>>(.*?)<<INDENT_END>>', re.DOTALL)
@@ -152,6 +160,7 @@ class Converter:
         text = _break_adjacent_ordered_lists(text)
         text = _collapse_blank_between_list_and_quote(text)
         text = _collapse_blank_between_list_and_fence(text)
+        text = _collapse_blanks_around_br_between_lists(text)
         return text.strip() + '\n'
 
     def _render(self, node) -> str:
@@ -187,10 +196,16 @@ class Converter:
                 return f'\n\n<<INDENT:{margin_level}>>{inner}<<INDENT_END>>\n\n'
             if self._is_tag_only_paragraph(tag) and not self._has_single_real_paragraph_child(tag):
                 if self._has_nested_formatting_child(tag):
-                    return '\n' + ''.join(self._render(c) for c in tag.children)
-                return ''.join(self._render(c) for c in tag.children)
+                    prev = self._previous_block_sibling(tag)
+                    if prev is not None and (prev.name or '').lower() in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+                        return '\n' + ''.join(self._render(c) for c in tag.children)
+                    # Fall through to standard <p> rendering (\n\n lead)
+                else:
+                    return ''.join(self._render(c) for c in tag.children)
             inner = self._render_children(tag).strip()
             if not inner or all(c in ' \t\n\\' for c in inner):
+                if self._is_list_separator_cursor_park(tag):
+                    return '\n<br>\n'
                 return ''
             return '\n\n' + inner
         if name == 'br':
@@ -199,10 +214,10 @@ class Converter:
             return self._render_heading(tag, int(name[1]))
         if name in ('strong', 'b'):
             inner = self._render_children(tag)
-            return inner if not inner.strip() else f"<strong>{inner}</strong>"
+            return inner if not inner.strip() else f"<strong>{inner.strip(chr(10))}</strong>"
         if name in ('em', 'i'):
             inner = self._render_children(tag)
-            return inner if not inner.strip() else f"<em>{inner}</em>"
+            return inner if not inner.strip() else f"<em>{inner.strip(chr(10))}</em>"
         if name == 'u':
             return f"<u>{self._inline(tag)}</u>"
         if name in ('sub', 'sup'):
@@ -226,9 +241,20 @@ class Converter:
             if 'color:' in style:
                 sole_code = self._sole_code_child(tag)
                 if sole_code is not None:
-                    return f'<code><font style="{style}">{self._render_children(sole_code)}</font></code>'
+                    code_inner = self._render_children(sole_code)
+                    if not code_inner.strip():
+                        return ''
+                    if (self._style_color_is_dark_gray(style)
+                            and not self._has_non_dark_gray_color_ancestor(tag)):
+                        return f'<code>{code_inner}</code>'
+                    return f'<code><font style="{style}">{code_inner}</font></code>'
                 inner = self._render_children(tag)
                 if '\n' in inner.strip():
+                    return inner
+                if not inner.strip():
+                    return ''
+                if (self._style_color_is_dark_gray(style)
+                        and not self._has_non_dark_gray_color_ancestor(tag)):
                     return inner
                 return f'<font style="{style}">{inner}</font>'
             return self._render_children(tag)
@@ -254,6 +280,29 @@ class Converter:
         new_level = level if level <= 3 else 6
         text = self._inline(tag)
         return '\n' + '#' * new_level + ' ' + text
+
+    DARK_GRAY_MAX = 88
+    _STYLE_COLOR_RE = re.compile(r'(?:^|;)\s*color\s*:\s*([^;]+?)\s*(?:;|$)')
+    _RGB_RE = re.compile(r'rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)')
+
+    def _style_color_is_dark_gray(self, style: str) -> bool:
+        m = self._STYLE_COLOR_RE.search(style)
+        if not m:
+            return False
+        rgb = self._RGB_RE.search(m.group(1))
+        if not rgb:
+            return False
+        return max(int(rgb.group(1)), int(rgb.group(2)), int(rgb.group(3))) <= self.DARK_GRAY_MAX
+
+    def _has_non_dark_gray_color_ancestor(self, tag: Tag) -> bool:
+        parent = tag.parent
+        while parent is not None:
+            if (getattr(parent, 'name', None) or '').lower() == 'span':
+                style = parent.attrs.get('style', '') or ''
+                if 'color:' in style and not self._style_color_is_dark_gray(style):
+                    return True
+            parent = getattr(parent, 'parent', None)
+        return False
 
     def _sole_code_child(self, tag: Tag) -> Tag | None:
         code = None
@@ -315,6 +364,51 @@ class Converter:
     PROMOTE_MACRO_NAMES = frozenset({
         'widget', 'view-file', 'viewpdf', 'multimedia', 'excerpt-include',
     })
+
+    def _is_list_separator_cursor_park(self, tag: Tag) -> bool:
+        has_br = False
+        for child in tag.children:
+            if isinstance(child, NavigableString):
+                if str(child).strip():
+                    return False
+            elif isinstance(child, Tag):
+                if (child.name or '').lower() == 'br':
+                    has_br = True
+                else:
+                    return False
+        if not has_br:
+            return False
+        prev = self._previous_block_sibling(tag)
+        nxt = self._next_block_sibling(tag)
+        if prev is None or nxt is None:
+            return False
+        prev_name = (prev.name or '').lower()
+        nxt_name = (nxt.name or '').lower()
+        if prev_name not in ('ul', 'ol'):
+            return False
+        return prev_name == nxt_name
+
+    def _previous_block_sibling(self, tag: Tag):
+        sib = tag.previous_sibling
+        while sib is not None:
+            if isinstance(sib, Tag):
+                return sib
+            if isinstance(sib, NavigableString) and not str(sib).strip():
+                sib = sib.previous_sibling
+                continue
+            return None
+        return None
+
+    def _next_block_sibling(self, tag: Tag):
+        sib = tag.next_sibling
+        while sib is not None:
+            if isinstance(sib, Tag):
+                return sib
+            if isinstance(sib, NavigableString) and not str(sib).strip():
+                sib = sib.next_sibling
+                continue
+            return None
+        return None
 
     def _has_single_real_paragraph_child(self, tag: Tag) -> bool:
         real_count = 0
@@ -399,10 +493,6 @@ class Converter:
                 k in ('block', 'block_post_nested') and not c.startswith('```')
                 for k, c in post_items
             )
-            if has_hoisted_block:
-                self.warnings.append(
-                    f"list item with block content (hoisted to column 0) on page '{self.page_name}'"
-                )
             if not body and has_hoisted_block:
                 # Empty body + block content → drop marker; emit blocks at column 0
                 # followed by any nested lists. Source-order interleaving collapses
@@ -719,9 +809,9 @@ class Converter:
         title = self._direct_parameter_text(tag, 'title') or 'Click here to expand...'
         body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
         body = self._render_children(body_tag).strip() if body_tag is not None else ''
-        header = f"> [!{callout_type}]- {title}"
         if not body:
-            return f"\n\n{header}"
+            body = "TODO"
+        header = f"> [!{callout_type}]- {title}"
         body = re.sub(r'\n{3,}', '\n\n', body)
         quoted = '\n'.join(f"> {line}" if line else ">" for line in body.split('\n'))
         return f"\n\n{header}\n{quoted}"
