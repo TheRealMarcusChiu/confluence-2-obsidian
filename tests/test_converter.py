@@ -3010,3 +3010,283 @@ def test_document_start_colored_span_p_renders_as_standard_paragraph():
     xml = '<p><span style="color: rgb(255,0,0);">ONLY</span></p>'
     out = convert(xml)
     assert out == "<font style=\"color: rgb(255,0,0);\">ONLY</font>"
+
+
+# --- table-fence \n\n lead + plain <span> <p> as real paragraph ---
+
+
+def test_paragraph_then_table_emits_blank_line_before_fence():
+    # User's scenarios A: <p>BEFORE</p><table>...</table> needs blank line
+    # between BEFORE and the opening ```merge-table fence.
+    xml = (
+        '<p class="auto-cursor-target">BEFORE</p>'
+        '<table><colgroup><col /><col /></colgroup>'
+        '<tbody><tr><td colspan="2"><p>INSIDE</p></td></tr></tbody></table>'
+        '<p class="auto-cursor-target">AFTER</p>'
+    )
+    out = convert(xml)
+    expected = (
+        "BEFORE\n"
+        "\n"
+        "```merge-table\n"
+        "{\n"
+        "  \"rows\": [\n"
+        "    [\n"
+        "      {\n"
+        "        \"content\": \"INSIDE\",\n"
+        "        \"colspan\": 2\n"
+        "      },\n"
+        "      null\n"
+        "    ]\n"
+        "  ]\n"
+        "}\n"
+        "```\n"
+        "\n"
+        "AFTER"
+    )
+    assert out == expected
+
+
+def test_paragraph_then_table_then_plain_span_p_emits_blank_lines_both_sides():
+    # User's scenarios B: same as above but the trailing <p> wraps text in a
+    # bare <span>. Plain <span> <p> now renders as a real paragraph (joins the
+    # single link-or-embed carve-out), so the blank-line spacing works the
+    # same as the bare <p>AFTER</p> case.
+    xml = (
+        '<p class="auto-cursor-target">BEFORE</p>'
+        '<table><colgroup><col /><col /></colgroup>'
+        '<tbody><tr><td colspan="2"><p>INSIDE</p></td></tr></tbody></table>'
+        '<p class="auto-cursor-target"><span>AFTER</span></p>'
+    )
+    out = convert(xml)
+    expected = (
+        "BEFORE\n"
+        "\n"
+        "```merge-table\n"
+        "{\n"
+        "  \"rows\": [\n"
+        "    [\n"
+        "      {\n"
+        "        \"content\": \"INSIDE\",\n"
+        "        \"colspan\": 2\n"
+        "      },\n"
+        "      null\n"
+        "    ]\n"
+        "  ]\n"
+        "}\n"
+        "```\n"
+        "\n"
+        "AFTER"
+    )
+    assert out == expected
+
+
+def test_plain_span_p_between_two_paragraphs_blank_line_separated():
+    # Plain <p><span>X</span></p> renders as a real paragraph; blank line
+    # between it and surrounding paragraphs.
+    xml = '<p>before</p><p><span>X</span></p><p>after</p>'
+    out = convert(xml)
+    assert out == "before\n\nX\n\nafter"
+
+
+def test_plain_span_with_non_color_style_still_real_paragraph():
+    # <span style="font-size: 14px;"> has no color: declaration → still a
+    # plain span, real paragraph.
+    xml = '<p>before</p><p><span style="font-size: 14px;">X</span></p><p>after</p>'
+    out = convert(xml)
+    assert out == "before\n\nX\n\nafter"
+
+
+def test_colored_span_p_still_takes_colored_carveout():
+    # Regression: colored span <p> stays in the colored-span carve-out
+    # (heading-tight or standard paragraph based on previous sibling).
+    xml = '<h1>H</h1><p><span style="color: rgb(200,0,0);">TEXT</span></p>'
+    out = convert(xml)
+    assert out == '# H\n<font style="color: rgb(200,0,0);">TEXT</font>'
+
+
+def test_heading_then_table_now_has_blank_line():
+    # Behavior change: <table> emits \n\n lead, so heading-then-table is no
+    # longer tight. Acceptable per CONTEXT.md (no corpus case needs tight).
+    xml = '<h1>H</h1><table><tr><td>X</td></tr></table>'
+    out = convert(xml)
+    assert out.startswith("# H\n\n```merge-table\n")
+
+
+# --- colored <span> boundary-\n strip ---
+
+
+def test_colored_span_with_trailing_br_strips_to_font_only():
+    out = convert('<p><span style="color: rgb(128,128,128);">ONE<br/></span></p>')
+    assert out == '<font style="color: rgb(128,128,128);">ONE</font>'
+
+
+def test_colored_span_with_leading_br_strips_to_font_only():
+    out = convert('<p><span style="color: rgb(128,128,128);"><br/>ONE</span></p>')
+    assert out == '<font style="color: rgb(128,128,128);">ONE</font>'
+
+
+def test_colored_span_with_midcontent_br_preserves_line_break():
+    # Real interior <br/> (intentional line break) survives.
+    out = convert('<p><span style="color: rgb(128,128,128);">line1<br/>line2</span></p>')
+    # Mid-content \n in the inner triggers the block-content unwrap, which
+    # drops the <font> wrapper. (The boundary-\n strip only touches edges.)
+    assert "line1\nline2" in out
+
+
+def test_colored_span_ascii_space_at_boundary_still_preserved():
+    # ASCII space (not \n) at boundary survives — syntax-highlight token rule
+    # is intact.
+    out = convert('<code><span style="color: rgb(102,102,0);">refresh </span></code>')
+    assert out == '<code><font style="color: rgb(102,102,0);">refresh </font></code>'
+
+
+def test_nested_li_with_colored_span_br_renders_properly_indented():
+    # User's full scenario: nested <ul> with colored-span <li>s, first one has
+    # a trailing <br/>. Before the strip: the \n leaked, triggered hoist +
+    # marker-drop, broke the nested list. After the strip: clean nested list.
+    xml = (
+        '<ul>'
+        '<li>BEFORE<br />'
+        '<ul>'
+        '<li><span style="color: rgb(128,128,128);">ONE<br /></span></li>'
+        '<li><span style="color: rgb(128,128,128);">TWO</span></li>'
+        '</ul></li></ul>'
+    )
+    out = convert(xml)
+    assert out == (
+        "- BEFORE\n"
+        "\t- <font style=\"color: rgb(128,128,128);\">ONE</font>\n"
+        "\t- <font style=\"color: rgb(128,128,128);\">TWO</font>"
+    )
+
+
+# --- multi-plain-span <p> carve-out (Quora-style chunked paragraph) ---
+
+
+def test_multi_plain_span_p_after_heading_renders_tight():
+    # User's scenario 1: heading + <p> with three plain <span> chunks
+    # (text + image + text). Tight (\n) lead matches the colored-span carve-out.
+    xml = (
+        '<h1><span style="font-size: 24.0px;">Header</span></h1>'
+        '<p class="q-text"><span>BEFORE</span>'
+        '<span><ac:image ac:width="200"><ri:attachment ri:filename="1.png"/></ac:image></span>'
+        '<span>AFTER</span></p>'
+    )
+    out = convert(xml, page_name="16")
+    assert out == "# Header\nBEFORE![[16/1.png|200]]AFTER"
+
+
+def test_multi_plain_span_p_after_paragraph_renders_standard():
+    # When preceded by a non-heading sibling, falls through to standard <p>
+    # rendering (\n\n lead).
+    xml = (
+        '<p>OUTER</p>'
+        '<p><span>A</span><span>B</span></p>'
+    )
+    out = convert(xml)
+    assert out == "OUTER\n\nAB"
+
+
+def test_multi_plain_span_p_with_two_spans_already_carved_out():
+    xml = '<h1>H</h1><p><span>A</span><span>B</span></p>'
+    out = convert(xml)
+    assert out == "# H\nAB"
+
+
+def test_multi_plain_span_p_with_colored_span_takes_colored_carveout():
+    # If any direct <span> is colored, the colored-span branch (a) fires first.
+    # The carve-out result is heading-tight regardless.
+    xml = '<h1>H</h1><p><span>A</span><span style="color: rgb(200,0,0);">B</span></p>'
+    out = convert(xml)
+    assert out == '# H\nA<font style="color: rgb(200,0,0);">B</font>'
+
+
+def test_multi_plain_span_p_with_a_still_cursor_park():
+    # Multi-mixed (plain <span> + <a>) — not all plain spans. Stays in the
+    # cursor-park drop path per the existing narrow "single direct meaningful
+    # Tag child" rule.
+    xml = '<p>before</p><p><span>X</span><a href="u">Y</a></p>'
+    out = convert(xml)
+    assert out == "beforeX[Y](u)"
+
+
+def test_user_scenario_2_three_single_span_ps_unchanged():
+    # Regression: scenario 2 already worked via the single-real-paragraph-child
+    # rule (plain <span> single direct child). Should keep blank-line spacing.
+    xml = (
+        '<h1 class="q-text"><span>Header</span></h1>'
+        '<p class="q-text"><span>BEFORE</span></p>'
+        '<p class="q-text"><span><ac:image ac:width="200"><ri:attachment ri:filename="1.png"/></ac:image></span></p>'
+        '<p class="q-text"><span>AFTER</span></p>'
+    )
+    out = convert(xml, page_name="16")
+    assert out == "# Header\n\nBEFORE\n\n![[16/1.png|200]]\n\nAFTER"
+
+
+# --- URL paren-balance encoding for Markdown links ---
+
+
+def test_a_href_with_balanced_parens_kept_verbatim():
+    out = convert('<p><a href="https://x.com/(a)/b">label</a></p>')
+    assert out == "[label](https://x.com/(a)/b)"
+
+
+def test_a_href_with_unmatched_trailing_paren_encoded():
+    out = convert('<p><a href="https://x.com/y)">label</a></p>')
+    assert out == "[label](https://x.com/y%29)"
+
+
+def test_a_href_with_unmatched_leading_open_paren_encoded():
+    out = convert('<p><a href="https://x.com/(y">label</a></p>')
+    assert out == "[label](https://x.com/%28y)"
+
+
+def test_a_href_multiple_unmatched_closing_parens_all_encoded():
+    out = convert('<p><a href="https://x.com/)y)">label</a></p>')
+    assert out == "[label](https://x.com/%29y%29)"
+
+
+def test_a_href_wikipedia_text_fragment_balanced_pair_preserved():
+    # User's example: balanced (topological_vector_space) stays; unmatched
+    # ) after "one" gets encoded.
+    href = (
+        'https://en.wikipedia.org/wiki/Bounded_set_(topological_vector_space)'
+        '#:~:text=one).%5B1%5D-,If,at%20the%20origin'
+    )
+    out = convert(f'<p><a href="{href}" rel="nofollow">{href}</a></p>')
+    expected_url = (
+        'https://en.wikipedia.org/wiki/Bounded_set_(topological_vector_space)'
+        '#:~:text=one%29.%5B1%5D-,If,at%20the%20origin'
+    )
+    # Display text keeps original parens; URL gets the unbalanced ) encoded.
+    assert out == f"[{href}]({expected_url})"
+
+
+def test_a_display_text_parens_kept_verbatim():
+    # Parens in link text are NOT encoded — Markdown doesn't treat them as
+    # special inside [ ].
+    out = convert('<p><a href="https://x.com/">text (with parens)</a></p>')
+    assert out == "[text (with parens)](https://x.com/)"
+
+
+def test_widget_url_with_unmatched_paren_encoded():
+    xml = (
+        '<ac:structured-macro ac:name="widget">'
+        '<ac:parameter ac:name="url">'
+        '<ri:url ri:value="https://youtube.com/watch?v=abc)" />'
+        '</ac:parameter></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert out == "![](https://youtube.com/watch?v=abc%29)"
+
+
+def test_ac_link_with_ri_url_paren_encoded():
+    xml = (
+        '<p><ac:link>'
+        '<ri:url ri:value="https://x.com/y)" />'
+        '<ac:plain-text-link-body><![CDATA[label]]></ac:plain-text-link-body>'
+        '</ac:link></p>'
+    )
+    out = convert(xml)
+    assert out == "[label](https://x.com/y%29)"

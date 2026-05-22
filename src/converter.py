@@ -15,6 +15,34 @@ INLINE_HTML_CODE_TAGS = frozenset({'code', 'pre'})
 CDATA_VERBATIM_TAGS = frozenset({'ac:plain-text-body', 'ac:plain-text-link-body'})
 
 
+def _balance_url_parens(url: str) -> str:
+    chars = []
+    open_count = 0
+    for ch in url:
+        if ch == '(':
+            open_count += 1
+            chars.append(ch)
+        elif ch == ')':
+            if open_count > 0:
+                open_count -= 1
+                chars.append(ch)
+            else:
+                chars.append('%29')
+        else:
+            chars.append(ch)
+    if open_count == 0:
+        return ''.join(chars)
+    remaining = open_count
+    encoded = []
+    for ch in reversed(chars):
+        if ch == '(' and remaining > 0:
+            encoded.append('%28')
+            remaining -= 1
+        else:
+            encoded.append(ch)
+    return ''.join(reversed(encoded))
+
+
 def _escape_html(text: str) -> str:
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
@@ -195,7 +223,8 @@ class Converter:
                     return ''
                 return f'\n\n<<INDENT:{margin_level}>>{inner}<<INDENT_END>>\n\n'
             if self._is_tag_only_paragraph(tag) and not self._has_single_real_paragraph_child(tag):
-                if self._has_nested_formatting_child(tag):
+                if (self._has_nested_formatting_child(tag)
+                        or self._has_multi_plain_span_children(tag)):
                     prev = self._previous_block_sibling(tag)
                     if prev is not None and (prev.name or '').lower() in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
                         return '\n' + ''.join(self._render(c) for c in tag.children)
@@ -248,7 +277,7 @@ class Converter:
                             and not self._has_non_dark_gray_color_ancestor(tag)):
                         return f'<code>{code_inner}</code>'
                     return f'<code><font style="{style}">{code_inner}</font></code>'
-                inner = self._render_children(tag)
+                inner = self._render_children(tag).strip(chr(10))
                 if '\n' in inner.strip():
                     return inner
                 if not inner.strip():
@@ -410,6 +439,22 @@ class Converter:
             return None
         return None
 
+    def _has_multi_plain_span_children(self, tag: Tag) -> bool:
+        span_count = 0
+        for child in tag.children:
+            if isinstance(child, Tag):
+                name = (child.name or '').lower()
+                if name == 'br':
+                    continue
+                if name == 'span':
+                    style = child.attrs.get('style', '') or ''
+                    if 'color:' in style:
+                        return False
+                    span_count += 1
+                else:
+                    return False
+        return span_count >= 2
+
     def _has_single_real_paragraph_child(self, tag: Tag) -> bool:
         real_count = 0
         for child in tag.children:
@@ -421,6 +466,11 @@ class Converter:
                     real_count += 1
                 elif (name == 'ac:structured-macro'
                       and child.attrs.get('ac:name', '') in self.PROMOTE_MACRO_NAMES):
+                    real_count += 1
+                elif name == 'span':
+                    style = child.attrs.get('style', '') or ''
+                    if 'color:' in style:
+                        return False
                     real_count += 1
                 else:
                     return False
@@ -445,7 +495,7 @@ class Converter:
             return text
         if not text:
             text = href
-        return f"[{text}]({href})"
+        return f"[{text}]({_balance_url_parens(href)})"
 
     def _render_list(self, tag: Tag, ordered: bool) -> str:
         return '\n' + self._render_list_inner(tag, ordered, depth=0) + '\n\n'
@@ -549,7 +599,7 @@ class Converter:
     def _render_table(self, tag: Tag) -> str:
         table_def = self._build_table_def(tag)
         body = json.dumps(table_def, indent=2, ensure_ascii=False)
-        return f'\n```merge-table\n{body}\n```'
+        return f'\n\n```merge-table\n{body}\n```'
 
     def _build_table_def(self, tag: Tag) -> dict:
         rows = [self._build_row(tr) for tr in self._iter_table_rows(tag)]
@@ -850,7 +900,7 @@ class Converter:
         href = ri_url.attrs.get('ri:value', '') if ri_url is not None else param.get_text().strip()
         if not href:
             return ''
-        return f"![]({href})"
+        return f"![]({_balance_url_parens(href)})"
 
     def _render_file_embed(self, tag: Tag) -> str:
         attach = tag.find('ri:attachment')
@@ -922,7 +972,7 @@ class Converter:
         if url is not None:
             href = url.attrs.get('ri:value', '')
             text = display or href
-            return f"[{text}]({href})"
+            return f"[{text}]({_balance_url_parens(href)})"
         if attach is not None:
             filename = normalize_filename_whitespace(attach.attrs.get('ri:filename', ''))
             self.attachments_referenced.append(filename)
