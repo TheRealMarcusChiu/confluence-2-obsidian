@@ -62,10 +62,14 @@ def test_li_with_only_p_no_hoist():
     assert out == "- just paragraph"
 
 
-def test_li_with_p_followed_by_another_p_hoists_second():
+def test_li_with_p_followed_by_another_p_renders_as_loose_list_continuation():
+    # Two <p> siblings in <li> are CommonMark loose-list multi-paragraph
+    # items: the second <p> becomes an indented continuation paragraph with
+    # a blank-with-indent separator line. Marker "- " has continuation
+    # indent of 2 spaces (len("-") + 1).
     xml = '<ul><li><p>first</p><p>second</p></li></ul>'
     out = convert(xml)
-    assert out == "- first\nsecond"
+    assert out == "- first\n  \n  second"
 
 
 def test_inject_list_placeholders_indented_list_after_non_list_content():
@@ -434,30 +438,31 @@ def test_pre_wrapper_carries_whitespace_pre_wrap_style():
     assert '<code>\tprint(2)</code>' in out
 
 
-def test_pre_hoisted_from_li_flushes_against_following_p_inside_li():
-    # <li> containing <p>BEFORE</p><pre>...</pre><p>AFTER</p>:
-    # both <pre> and trailing <p> are hoisted; the blank line between the hoisted
-    # <span>-wrapper and the following plain text AFTER is collapsed to a single
-    # newline (exception (5) of the Block-spacing rule).
+def test_pre_inside_li_renders_as_loose_list_continuation():
+    # <li> containing <p>BEFORE</p><pre>...</pre><p>AFTER</p>: with <pre>
+    # promoted into the paragraph-like set, all three siblings become
+    # continuation blocks of the same list item, indented 2 spaces (marker "- ").
     xml = '<ul><li><p>BEFORE</p><pre>    HELLO\n</pre><p>AFTER</p></li></ul>'
     out = convert(xml)
     assert out == (
         '- BEFORE\n'
-        '<span style="white-space: pre-wrap"><code>    HELLO</code></span>\n'
-        'AFTER'
+        '  \n'
+        '  <span style="white-space: pre-wrap"><code>    HELLO</code></span>\n'
+        '  \n'
+        '  AFTER'
     )
 
 
-def test_pre_hoisted_from_li_preserves_blank_line_before_p_outside_li():
-    # When <p>AFTER</p> sits at document level after </ul>, the boundary between
-    # the list and the next paragraph keeps its blank line — the in-<li> hoist
-    # collapse only fires for blocks hoisted from the same list item, not for
-    # adjacent blocks at the document level.
+def test_pre_inside_li_then_p_outside_li_keeps_blank_line_separator():
+    # <pre> inside <li> is loose-list continuation (indented); <p>AFTER</p> at
+    # document level after </ul> is separated from the list by the standard
+    # list-trailing blank line.
     xml = '<ul><li><p>BEFORE</p><pre>    HELLO\n</pre></li></ul><p>AFTER</p>'
     out = convert(xml)
     assert out == (
         '- BEFORE\n'
-        '<span style="white-space: pre-wrap"><code>    HELLO</code></span>\n\n'
+        '  \n'
+        '  <span style="white-space: pre-wrap"><code>    HELLO</code></span>\n\n'
         'AFTER'
     )
 
@@ -537,10 +542,10 @@ def test_li_with_block_nested_and_trailing_p_interleaves_in_source_order():
     # Outer <ol> <li> has: <p>WORLD</p>, <table>, <ul><li>HELLO</li></ul>, <p>AFTER</p>
     # The <table> is now a ```merge-table fenced block; the fence-exception in
     # the <li>-block rule indents it inside the list item rather than hoisting
-    # to column 0. The intervening fence lines reset the depth-jump pass's
-    # list-line scan, so the nested <ul> still gets a `- ` placeholder injected
-    # at depth 0. Trailing <p>AFTER</p> still picks up the 2-space post-nested
-    # indent.
+    # to column 0. The depth-jump pass now treats the indented fence lines as
+    # continuation (don't reset stack), so the nested <ul> properly nests
+    # under "1. WORLD" — no stray `- ` placeholder. Trailing <p>AFTER</p>
+    # still picks up the 2-space post-nested indent.
     xml = (
         '<ol><li>'
         '<p class="auto-cursor-target">WORLD</p>'
@@ -556,8 +561,9 @@ def test_li_with_block_nested_and_trailing_p_interleaves_in_source_order():
     assert '    ```\n' in out
     # Table-level tableStyle carries the style attribute verbatim.
     assert '"tableStyle": "text-align: left;"' in out
-    # Nested list still appears (with depth-jump placeholder above it).
-    assert '\n- \n\t- HELLO' in out
+    # Nested list properly nests (no stray placeholder).
+    assert '\n\t- HELLO' in out
+    assert '- \n\t- HELLO' not in out
     # Source order preserved.
     assert out.index('\t- HELLO') < out.index('AFTER')
     # Trailing hoisted content gets the 2-space post-nested indent.
@@ -823,10 +829,14 @@ def test_tag_only_p_with_single_inline_no_nesting_still_unwraps():
     assert out == 'before<code>X</code>'
 
 
-def test_tag_only_p_with_strong_no_nesting_still_unwraps():
+def test_tag_only_p_with_strong_promotes_to_real_paragraph():
+    # <strong>/<em> joined the single link-or-embed carve-out: <p><strong>X
+    # </strong></p> becomes a real paragraph with full \n\n leading spacing
+    # rather than cursor-park-gluing to preceding content. Confluence-imported
+    # sub-headings (<p><strong>HEADING</strong></p>) work as intended.
     xml = '<p>before</p><p><strong>X</strong></p>'
     out = convert(xml)
-    assert out == 'before<strong>X</strong>'
+    assert out == 'before\n\n<strong>X</strong>'
 
 
 def test_tag_only_p_with_double_nested_formatting_preserves_break():
@@ -1537,16 +1547,35 @@ def test_macro_children_with_page_param_not_migrated_drops_and_logs():
 def test_macro_excerpt_fenced_block_with_anchor():
     xml = '<ac:structured-macro ac:name="excerpt"><ac:rich-text-body><p>excerpt body</p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert "```excerpt\nexcerpt body\n```\n^excerpt" in out
+    assert "````excerpt\nexcerpt body\n````\n^excerpt" in out
     assert "> [!quote]" not in out
 
 
 def test_macro_excerpt_preserves_markdown_inside_fence():
     xml = '<ac:structured-macro ac:name="excerpt"><ac:rich-text-body><p><strong>bold</strong> and <em>italic</em></p></ac:rich-text-body></ac:structured-macro>'
     out = convert(xml)
-    assert "```excerpt" in out
+    assert "````excerpt" in out
     assert "<strong>bold</strong> and <em>italic</em>" in out
-    assert "```\n^excerpt" in out
+    assert "````\n^excerpt" in out
+
+
+def test_macro_excerpt_outer_4_backtick_fence_survives_inner_3_backtick_code_block():
+    # The 4-backtick outer fence is load-bearing: the excerpt body may contain
+    # a 3-backtick fenced code block (from a ``code`` macro), and a 3-backtick
+    # outer fence would terminate prematurely on the inner block's closing
+    # fence. 4 backticks outside, 3 inside — both close at their own fence.
+    xml = (
+        '<ac:structured-macro ac:name="excerpt"><ac:rich-text-body>'
+        '<p>before</p>'
+        '<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">py</ac:parameter>'
+        '<ac:plain-text-body><![CDATA[x = 1]]></ac:plain-text-body></ac:structured-macro>'
+        '<p>after</p>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml)
+    assert "````excerpt\n" in out
+    assert "```py\nx = 1\n```" in out
+    assert "\n````\n^excerpt" in out
 
 
 def test_macro_excerpt_include_extracts_page_title():
@@ -2569,12 +2598,14 @@ def test_tag_only_p_with_single_a_and_decorative_br_still_promotes():
     assert out == "TODO\n\n[DISPLAY](LINK)"
 
 
-def test_tag_only_p_with_two_a_children_still_unwraps_as_cursor_park():
-    # Multi-link <p> stays in the standard cursor-park unwrap path — the
-    # carve-out is narrow ("single direct Tag child is <a>").
+def test_tag_only_p_with_two_a_children_promotes_to_real_paragraph():
+    # Multi-link <p> (link soup) joined the carve-out (case d) — now a real
+    # paragraph with \n\n leading after preceding text. Whitespace text node
+    # between the two <a>s survives as the single space between [X](u1) and
+    # [Y](u2) in the rendered output.
     xml = '<p>before</p><p><a href="u1">X</a> <a href="u2">Y</a></p>'
     out = convert(xml)
-    assert out == "before[X](u1) [Y](u2)"
+    assert out == "before\n\n[X](u1) [Y](u2)"
 
 
 def test_tag_only_p_with_strong_then_a_still_unwraps_as_cursor_park():
@@ -3290,3 +3321,454 @@ def test_ac_link_with_ri_url_paren_encoded():
     )
     out = convert(xml)
     assert out == "[label](https://x.com/y%29)"
+
+
+# --- <pre><code>X</code></pre>: single <code> wrap, leading whitespace preserved ---
+
+
+def test_pre_with_code_child_unwraps_inner_code_to_single_wrap():
+    out = convert("<pre><code>HELLO</code></pre>")
+    # Single <code> wrap (not double <code><code>X</code></code>).
+    assert out == '<span style="white-space: pre-wrap"><code>HELLO</code></span>'
+
+
+def test_pre_with_code_child_preserves_leading_whitespace():
+    out = convert("<pre><code>  PREFORMATTED_TEXT</code></pre>")
+    assert out == (
+        '<span style="white-space: pre-wrap"><code>  PREFORMATTED\\_TEXT</code></span>'
+    )
+
+
+def test_pre_with_code_child_nested_colored_span_still_renders_font():
+    # Nested formatting inside <code> inside <pre> still composes through the
+    # colored-span → <font> rule.
+    out = convert('<pre><code>before<span style="color: red;">red</span>after</code></pre>')
+    assert out == (
+        '<span style="white-space: pre-wrap"><code>before<font style="color: red;">red</font>after</code></span>'
+    )
+
+
+def test_pre_followed_by_strong_p_gets_blank_line_separator():
+    # <p><strong>TEXT</strong></p> is now a real paragraph (joined the
+    # single-real-child carve-out), so it emits \n\n leading. Between a
+    # pre wrapper and the following strong-paragraph: blank line. Between
+    # the strong-paragraph and its following pre: tight \n.
+    xml = (
+        '<p><strong>TEXT</strong></p>'
+        '<pre><code>  PREFORMATTED_TEXT</code></pre>'
+        '<p><strong>TEXT</strong></p>'
+        '<pre><code>  PREFORMATTED_TEXT</code></pre>'
+    )
+    out = convert(xml)
+    expected = (
+        '<strong>TEXT</strong>\n'
+        '<span style="white-space: pre-wrap"><code>  PREFORMATTED\\_TEXT</code></span>\n'
+        '\n'
+        '<strong>TEXT</strong>\n'
+        '<span style="white-space: pre-wrap"><code>  PREFORMATTED\\_TEXT</code></span>'
+    )
+    assert out == expected
+
+
+# --- paragraph-like (<p>/<h*>) <li> children → loose-list continuation ---
+
+
+def test_li_with_heading_then_paragraph_renders_tight_marker_then_indented_p():
+    # User's full scenario: <ol><li><h4>HEADER</h4><p>X</p><p>Y</p><p>Z</p></li></ol>
+    # → ordered loose-list with heading on marker line, 3 indented paragraphs
+    # below separated by blank-with-indent lines.
+    xml = (
+        '<ol class="steps steps_list"><li>'
+        '<h4>HEADER</h4>'
+        '<p>TEXT_AFTER_1</p>'
+        '<p>TEXT_AFTER_2</p>'
+        '<p>TEXT_AFTER_3</p>'
+        '</li></ol>'
+    )
+    out = convert(xml)
+    assert out == (
+        "1. ###### HEADER\n"
+        "   TEXT\\_AFTER\\_1\n"
+        "   \n"
+        "   TEXT\\_AFTER\\_2\n"
+        "   \n"
+        "   TEXT\\_AFTER\\_3"
+    )
+
+
+def test_li_with_heading_then_single_p_renders_tight():
+    # <h*> + 1 <p>: heading + tight single \n + paragraph, no blank-line
+    # continuation (only one post-heading paragraph).
+    xml = '<ul><li><h4>H</h4><p>X</p></li></ul>'
+    out = convert(xml)
+    assert out == "- ###### H\n  X"
+
+
+def test_li_with_pp_then_block_falls_back_to_old_hoist_behavior():
+    # When a <li> has ANY non-paragraph-like block child (callout here), the
+    # loose-list rule is disabled to preserve source-order interleaving with
+    # the hoisted block(s). Second <p> hoists to col 0 alongside the callout.
+    xml = (
+        '<ul><li>'
+        '<p>X</p>'
+        '<p>Y</p>'
+        '<ac:structured-macro ac:name="info">'
+        '<ac:rich-text-body><p>note</p></ac:rich-text-body>'
+        '</ac:structured-macro>'
+        '</li></ul>'
+    )
+    out = convert(xml)
+    assert out == "- X\nY\n\n> [!info]\n> note"
+
+
+def test_li_single_paragraph_unchanged():
+    # Regression: single <p> in <li> still produces a tight one-line item.
+    xml = '<ul><li><p>only</p></li></ul>'
+    out = convert(xml)
+    assert out == "- only"
+
+
+# --- <pre> in loose-list paragraph-like set ---
+
+
+def test_li_with_heading_p_pre_loose_list_continuation():
+    # User's scenario: heading + paragraph + pre. All paragraph-like with
+    # <pre> in the set; loose-list continuation indented 3 spaces (marker "1. ").
+    xml = (
+        '<ol class="steps steps_list"><li>'
+        '<h4>HEADER</h4>'
+        '<p>TEXT_1</p>'
+        '<pre>PREFORMATTED_TEXT</pre>'
+        '</li></ol>'
+    )
+    out = convert(xml)
+    assert out == (
+        '1. ###### HEADER\n'
+        '   TEXT\\_1\n'
+        '   \n'
+        '   <span style="white-space: pre-wrap"><code>PREFORMATTED\\_TEXT</code></span>'
+    )
+
+
+def test_li_with_p_pre_loose_list_continuation():
+    # <li><p>X</p><pre>Y</pre></li> — paragraph + pre as loose-list continuation.
+    xml = '<ul><li><p>X</p><pre>Y</pre></li></ul>'
+    out = convert(xml)
+    assert out == (
+        '- X\n'
+        '  \n'
+        '  <span style="white-space: pre-wrap"><code>Y</code></span>'
+    )
+
+
+# --- nested loose-list continuation (depth >= 1) ---
+
+
+def test_nested_loose_list_user_scenario_full():
+    # User's scenario: outer <ol> with one <li>, nested <ul> with two <li>s;
+    # first inner <li> has two <p>s (loose-list continuation needed at depth=1).
+    xml = (
+        '<ol><li>'
+        '<p>text_1</p>'
+        '<ul>'
+        '<li><p>text_2</p><p>text_3</p></li>'
+        '<li><p>text_4</p></li>'
+        '</ul></li></ol>'
+    )
+    out = convert(xml)
+    assert out == (
+        '1. text\\_1\n'
+        '\t- text\\_2\n'
+        '\t  \n'
+        '\t  text\\_3\n'
+        '\t- text\\_4'
+    )
+
+
+def test_nested_li_with_pp_loose_list_continuation():
+    # Minimal nested case: <ul><li><ul><li><p>X</p><p>Y</p></li></ul></li></ul>.
+    # Inner <li> at depth=1 with two <p>s → continuation indented.
+    xml = (
+        '<ul><li><p>O</p>'
+        '<ul><li><p>X</p><p>Y</p></li></ul>'
+        '</li></ul>'
+    )
+    out = convert(xml)
+    assert out == (
+        '- O\n'
+        '\t- X\n'
+        '\t  \n'
+        '\t  Y'
+    )
+
+
+def test_nested_li_with_heading_p_loose_list_continuation():
+    # Nested <li> with heading-then-p: tight \n + continuation indent at depth=1.
+    xml = (
+        '<ul><li><p>O</p>'
+        '<ul><li><h4>H</h4><p>X</p></li></ul>'
+        '</li></ul>'
+    )
+    out = convert(xml)
+    assert out == (
+        '- O\n'
+        '\t- ###### H\n'
+        '\t  X'
+    )
+
+
+# --- <strong>/<em> single-child <p> promoted to real paragraph ---
+
+
+def test_user_scenario_strong_p_after_text_p_gets_blank_line():
+    xml = '<p>TEXT_1</p><p><strong>TEXT_2</strong></p>'
+    out = convert(xml)
+    assert out == 'TEXT\\_1\n\n<strong>TEXT\\_2</strong>'
+
+
+def test_tag_only_p_with_em_promotes_to_real_paragraph():
+    xml = '<p>before</p><p><em>X</em></p>'
+    out = convert(xml)
+    assert out == 'before\n\n<em>X</em>'
+
+
+def test_tag_only_p_with_b_alias_promotes():
+    xml = '<p>before</p><p><b>X</b></p>'
+    out = convert(xml)
+    assert out == 'before\n\n<strong>X</strong>'
+
+
+def test_tag_only_p_with_i_alias_promotes():
+    xml = '<p>before</p><p><i>X</i></p>'
+    out = convert(xml)
+    assert out == 'before\n\n<em>X</em>'
+
+
+def test_tag_only_p_with_code_still_cursor_parks():
+    # Regression: <code> stays in the cursor-park unwrap path (typical author
+    # intent is inline code, not a paragraph).
+    xml = '<p>before</p><p><code>X</code></p>'
+    out = convert(xml)
+    assert out == 'before<code>X</code>'
+
+
+# --- multi-<a> <p> carve-out (link soup paragraph) ---
+
+
+def test_user_scenario_strong_p_then_multi_a_p_blank_line_between():
+    xml = (
+        '<p><strong>TEXT</strong></p>'
+        '<p>'
+        '<a href="https://example.com/one">https://example.com/one</a>'
+        '<a href="https://example.com/two">https://example.com/two</a>'
+        '</p>'
+    )
+    out = convert(xml)
+    assert out == (
+        '<strong>TEXT</strong>\n'
+        '\n'
+        '[https://example.com/one](https://example.com/one)'
+        '[https://example.com/two](https://example.com/two)'
+    )
+
+
+def test_multi_a_p_after_heading_renders_tight():
+    xml = '<h1>H</h1><p><a href="u1">X</a><a href="u2">Y</a></p>'
+    out = convert(xml)
+    assert out == '# H\n[X](u1)[Y](u2)'
+
+
+def test_multi_a_p_after_paragraph_renders_blank_line():
+    xml = '<p>before</p><p><a href="u1">X</a><a href="u2">Y</a></p>'
+    out = convert(xml)
+    assert out == 'before\n\n[X](u1)[Y](u2)'
+
+
+def test_mixed_a_and_strong_p_still_cursor_park():
+    # Multi-mixed (a + strong) stays in cursor-park unwrap — narrow rule
+    # (per the user's Q1 choice on the multi-element extension).
+    xml = '<p>before</p><p><a href="u">X</a><strong>Y</strong></p>'
+    out = convert(xml)
+    assert out == 'before[X](u)<strong>Y</strong>'
+
+
+def test_single_a_p_still_takes_existing_single_real_child_carveout():
+    # Regression: single <a> <p> still works via the single-real-child rule.
+    xml = '<p>before</p><p><a href="u">X</a></p>'
+    out = convert(xml)
+    assert out == 'before\n\n[X](u)'
+
+
+# --- <ac:image> block-vs-inline context ---
+
+
+def test_image_in_excerpt_after_heading_gets_blank_line():
+    # User's scenario: excerpt body has <h1>Header</h1><ac:image/> as direct
+    # siblings under <ac:rich-text-body>. Image renders as a block (\n\n lead).
+    xml = (
+        '<ac:structured-macro ac:name="excerpt"><ac:rich-text-body>'
+        '<h1>Header</h1>'
+        '<ac:image ac:width="301"><ri:attachment ri:filename="diagram.png"/></ac:image>'
+        '</ac:rich-text-body></ac:structured-macro>'
+    )
+    out = convert(xml, page_name="16")
+    assert out == (
+        '````excerpt\n'
+        '# Header\n'
+        '\n'
+        '![[16/diagram.png|301]]\n'
+        '````\n'
+        '^excerpt'
+    )
+
+
+def test_image_after_heading_at_document_level_gets_blank_line():
+    xml = '<h1>H</h1><ac:image ac:width="200"><ri:attachment ri:filename="img.png"/></ac:image>'
+    out = convert(xml, page_name="P")
+    assert out == "# H\n\n![[P/img.png|200]]"
+
+
+def test_image_inside_paragraph_stays_inline():
+    # Regression: image inside <p> stays as bare inline wikilink.
+    xml = '<p>see <ac:image><ri:attachment ri:filename="d.png"/></ac:image> here</p>'
+    out = convert(xml, page_name="P")
+    assert out == "see ![[P/d.png]] here"
+
+
+def test_standalone_image_at_document_root_unchanged():
+    # Regression: existing test_inline_image_attachment still passes — block
+    # \n\n lead/trail strips at document boundaries.
+    xml = '<ac:image><ri:attachment ri:filename="diagram.png"/></ac:image>'
+    out = convert(xml, page_name="MyPage")
+    assert out == "![[MyPage/diagram.png]]"
+
+
+def test_image_in_table_cell_stays_inline():
+    # Regression: <td><ac:image/></td> renders as inline wikilink in cell
+    # content (not block with \n\n which would inject newlines into the
+    # merge-table JSON string).
+    xml = '<table><tr><td><ac:image><ri:attachment ri:filename="a.png"/></ac:image></td></tr></table>'
+    out = convert(xml, page_name="MyPage")
+    assert '"![[MyPage/a.png]]"' in out
+    assert '"\\n\\n!' not in out
+
+
+# --- self-linking <ac:link> with body but no <ri:*> target ---
+
+
+def test_ac_link_with_body_no_ri_target_self_links_with_display():
+    xml = (
+        '<p><ac:link>'
+        '<ac:plain-text-link-body><![CDATA[descriptive statistic]]></ac:plain-text-link-body>'
+        '</ac:link></p>'
+    )
+    out = Converter("CurrentPage", page_title="CurrentPage").convert(xml).strip()
+    assert out == "[[CurrentPage|descriptive statistic]]"
+
+
+def test_ac_link_with_empty_body_no_ri_target_self_links_no_display():
+    xml = (
+        '<p><ac:link>'
+        '<ac:plain-text-link-body></ac:plain-text-link-body>'
+        '</ac:link></p>'
+    )
+    out = Converter("Page", page_title="Page").convert(xml).strip()
+    assert out == "[[Page]]"
+
+
+def test_user_scenario_excerpt_with_self_linking_ac_link_in_li():
+    xml = (
+        '<ac:structured-macro ac:name="excerpt"><ac:rich-text-body>'
+        '<ul>'
+        '<li>'
+        '<span style="color: rgb(34,34,34);">'
+        '<ac:link><ac:plain-text-link-body><![CDATA[descriptive statistic]]></ac:plain-text-link-body></ac:link>'
+        '</span>'
+        '<span style="color: rgb(34,34,34);"><br class="_mce_tagged_br"/></span>'
+        '</li></ul></ac:rich-text-body></ac:structured-macro>'
+    )
+    out = Converter("CurrentPage", page_title="CurrentPage").convert(xml).strip()
+    assert out == (
+        '````excerpt\n'
+        '- [[CurrentPage|descriptive statistic]]\n'
+        '````\n'
+        '^excerpt'
+    )
+
+
+def test_ac_link_with_ri_user_unchanged_regression():
+    # Regression: <ri:user> is NOT self-linked, falls through to empty/display.
+    xml = '<p>before <ac:link><ri:user ri:username="x"/></ac:link> after</p>'
+    out = convert(xml)
+    assert out == "before  after"
+    assert "[[" not in out
+
+
+def test_ac_link_with_ri_page_target_unchanged_regression():
+    # Regression: <ri:page> still produces a page wiki-link, not self-link.
+    xml = '<ac:link><ri:page ri:content-title="Other Page" /></ac:link>'
+    out = convert(xml)
+    assert out == "[[Other Page]]"
+
+
+# --- view-file / viewpdf / multimedia <ac:parameter ac:name="page"> handling ---
+
+
+def test_viewpdf_with_page_param_uses_referenced_page_subfolder():
+    xml = (
+        '<ac:structured-macro ac:name="viewpdf">'
+        '<ac:parameter ac:name="name"><ri:attachment ri:filename="PDF_FILE_NAME_HERE"/></ac:parameter>'
+        '<ac:parameter ac:name="page"><ac:link><ri:page ri:content-title="PAGE_TITLE_HERE"/></ac:link></ac:parameter>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml, page_name="CurrentPage")
+    assert out == "![[PAGE_TITLE_HERE/PDF_FILE_NAME_HERE]]"
+
+
+def test_view_file_with_page_param_uses_referenced_page():
+    xml = (
+        '<ac:structured-macro ac:name="view-file">'
+        '<ac:parameter ac:name="name"><ri:attachment ri:filename="doc.docx"/></ac:parameter>'
+        '<ac:parameter ac:name="page"><ac:link><ri:page ri:content-title="Other"/></ac:link></ac:parameter>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml, page_name="Cur")
+    assert out == "![[Other/doc.docx]]"
+
+
+def test_multimedia_with_page_param_uses_referenced_page():
+    xml = (
+        '<ac:structured-macro ac:name="multimedia">'
+        '<ac:parameter ac:name="name"><ri:attachment ri:filename="clip.mp4"/></ac:parameter>'
+        '<ac:parameter ac:name="page"><ac:link><ri:page ri:content-title="Other"/></ac:link></ac:parameter>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml, page_name="Cur")
+    assert out == "![[Other/clip.mp4]]"
+
+
+def test_viewpdf_without_page_param_falls_back_to_current_page():
+    # Regression: when page param is absent, the existing current-page
+    # behavior fires.
+    xml = (
+        '<ac:structured-macro ac:name="viewpdf">'
+        '<ac:parameter ac:name="name"><ri:attachment ri:filename="local.pdf"/></ac:parameter>'
+        '</ac:structured-macro>'
+    )
+    out = convert(xml, page_name="CurrentPage")
+    assert out == "![[CurrentPage/local.pdf]]"
+
+
+def test_viewpdf_with_page_param_resolves_via_title_map():
+    # When the referenced page is migrated, the title-map's resolved
+    # basename is used (e.g., sanitized to fullwidth chars).
+    from src.converter import Converter
+    c = Converter("Cur", title_map={"Design: v2": "Design： v2"})
+    xml = (
+        '<ac:structured-macro ac:name="viewpdf">'
+        '<ac:parameter ac:name="name"><ri:attachment ri:filename="d.pdf"/></ac:parameter>'
+        '<ac:parameter ac:name="page"><ac:link><ri:page ri:content-title="Design: v2"/></ac:link></ac:parameter>'
+        '</ac:structured-macro>'
+    )
+    out = c.convert(xml).strip()
+    assert out == "![[Design： v2/d.pdf]]"

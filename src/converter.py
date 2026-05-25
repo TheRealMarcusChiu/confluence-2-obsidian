@@ -123,6 +123,11 @@ def _inject_list_placeholders(text: str) -> str:
     for line in lines:
         m = _LIST_LINE_RE.match(line)
         if m is None:
+            if stack:
+                prefix = '\t' * stack[-1]
+                if line.startswith(prefix) and line[len(prefix):].startswith(' '):
+                    out.append(line)
+                    continue
             stack = []
             out.append(line)
             continue
@@ -224,7 +229,8 @@ class Converter:
                 return f'\n\n<<INDENT:{margin_level}>>{inner}<<INDENT_END>>\n\n'
             if self._is_tag_only_paragraph(tag) and not self._has_single_real_paragraph_child(tag):
                 if (self._has_nested_formatting_child(tag)
-                        or self._has_multi_plain_span_children(tag)):
+                        or self._has_multi_plain_span_children(tag)
+                        or self._has_multi_anchor_children(tag)):
                     prev = self._previous_block_sibling(tag)
                     if prev is not None and (prev.name or '').lower() in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
                         return '\n' + ''.join(self._render(c) for c in tag.children)
@@ -349,7 +355,7 @@ class Converter:
 
     def _render_pre(self, tag: Tag) -> str:
         body = self._render_pre_body(tag)
-        return f'\n{body}' if body else ''
+        return f'\n{body}\n' if body else ''
 
     def _render_pre_body(self, tag: Tag) -> str:
         parts = []
@@ -357,7 +363,10 @@ class Converter:
             if isinstance(child, NavigableString):
                 parts.append(PLAIN_TEXT_ESCAPE_RE.sub(r'\\\1', str(child)))
             elif isinstance(child, Tag):
-                parts.append(self._render(child))
+                if (child.name or '').lower() == 'code':
+                    parts.append(self._render_children(child))
+                else:
+                    parts.append(self._render(child))
         lines = ''.join(parts).split('\n')
         while lines and not lines[0].strip():
             lines.pop(0)
@@ -439,6 +448,19 @@ class Converter:
             return None
         return None
 
+    def _has_multi_anchor_children(self, tag: Tag) -> bool:
+        a_count = 0
+        for child in tag.children:
+            if isinstance(child, Tag):
+                name = (child.name or '').lower()
+                if name == 'br':
+                    continue
+                if name == 'a':
+                    a_count += 1
+                else:
+                    return False
+        return a_count >= 2
+
     def _has_multi_plain_span_children(self, tag: Tag) -> bool:
         span_count = 0
         for child in tag.children:
@@ -455,6 +477,9 @@ class Converter:
                     return False
         return span_count >= 2
 
+    PROMOTE_INLINE_TAGS = frozenset({'a', 'strong', 'b', 'em', 'i'})
+    BARE_PROMOTE_INLINE_TAGS = frozenset({'strong', 'b', 'em', 'i'})
+
     def _has_single_real_paragraph_child(self, tag: Tag) -> bool:
         real_count = 0
         for child in tag.children:
@@ -462,7 +487,13 @@ class Converter:
                 name = (child.name or '').lower()
                 if name == 'br':
                     continue
-                if name == 'a':
+                if name in self.BARE_PROMOTE_INLINE_TAGS:
+                    if any(isinstance(gc, Tag)
+                           and not (gc.name or '').lower().startswith('ac:')
+                           for gc in child.children):
+                        return False
+                    real_count += 1
+                elif name in self.PROMOTE_INLINE_TAGS:
                     real_count += 1
                 elif (name == 'ac:structured-macro'
                       and child.attrs.get('ac:name', '') in self.PROMOTE_MACRO_NAMES):
@@ -497,6 +528,20 @@ class Converter:
             text = href
         return f"[{text}]({_balance_url_parens(href)})"
 
+    _PARAGRAPHLIKE_LI_TAGS = frozenset({
+        'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'ul', 'ol', 'br',
+    })
+
+    def _li_has_block_children(self, item: Tag) -> bool:
+        for child in item.children:
+            if isinstance(child, Tag):
+                name = (child.name or '').lower()
+                if name in self._PARAGRAPHLIKE_LI_TAGS:
+                    continue
+                if self._render(child).strip():
+                    return True
+        return False
+
     def _render_list(self, tag: Tag, ordered: bool) -> str:
         return '\n' + self._render_list_inner(tag, ordered, depth=0) + '\n\n'
 
@@ -506,12 +551,15 @@ class Converter:
         indent = '\t' * depth
         for i, item in enumerate(items):
             marker = f"{i+1}." if ordered else "-"
+            continuation = indent + ' ' * (len(marker) + 1)
             inline_parts = []
             # post_items: (kind, content) in source order
             # kind: 'block' (pre-nested), 'nested', 'block_post_nested'
             post_items = []
             seen_first_p = False
             seen_nested = False
+            last_split_was_heading = False
+            li_can_loose = not self._li_has_block_children(item)
             for child in item.children:
                 if isinstance(child, Tag) and child.name in ('ul', 'ol'):
                     sub_ordered = (child.name == 'ol')
@@ -520,11 +568,26 @@ class Converter:
                     seen_nested = True
                     continue
                 is_p = isinstance(child, Tag) and child.name == 'p'
+                is_heading = isinstance(child, Tag) and (child.name or '').lower() in (
+                    'h1', 'h2', 'h3', 'h4', 'h5', 'h6'
+                )
+                is_pre = isinstance(child, Tag) and (child.name or '').lower() == 'pre'
+                is_paragraphlike = is_p or is_heading or is_pre
                 rendered = self._render(child)
                 stripped = rendered.strip()
-                if is_p and not seen_first_p and stripped:
+                if is_paragraphlike and not seen_first_p and stripped:
                     inline_parts.append(stripped)
                     seen_first_p = True
+                    last_split_was_heading = is_heading
+                elif is_paragraphlike and seen_first_p and stripped and li_can_loose:
+                    if depth == 0:
+                        sep = '\n' if last_split_was_heading else '\n\n'
+                    else:
+                        sep = ('\n' + continuation
+                               if last_split_was_heading
+                               else '\n' + continuation + '\n' + continuation)
+                    inline_parts.append(sep + stripped)
+                    last_split_was_heading = is_heading
                 elif seen_first_p:
                     if stripped:
                         kind = 'block_post_nested' if seen_nested else 'block'
@@ -535,7 +598,6 @@ class Converter:
                 else:
                     inline_parts.append(rendered)
             if depth == 0:
-                continuation = indent + ' ' * (len(marker) + 1)
                 body = ''.join(inline_parts).strip().replace('\n', '\n' + continuation)
             else:
                 body = ''.join(inline_parts).strip()
@@ -827,7 +889,7 @@ class Converter:
             inner = self._render_children(body_tag).strip()
         if not inner:
             return ''
-        return f"\n```excerpt\n{inner}\n```\n^excerpt\n\n"
+        return f"\n````excerpt\n{inner}\n````\n^excerpt\n\n"
 
     def _render_callout(self, tag: Tag, callout_type: str) -> str:
         body_tag = tag.find('ac:rich-text-body') or tag.find('ac:plain-text-body')
@@ -911,7 +973,15 @@ class Converter:
             return ''
         filename = normalize_filename_whitespace(filename)
         self.attachments_referenced.append(filename)
-        return f"![[{self.page_name}/{filename}]]"
+        subfolder = self.page_name
+        page_param = self._direct_parameter(tag, 'page')
+        if page_param is not None:
+            ri_page = page_param.find('ri:page')
+            if ri_page is not None:
+                title = ri_page.attrs.get('ri:content-title', '')
+                if title:
+                    subfolder = self._resolve_link_target(title)
+        return f"![[{subfolder}/{filename}]]"
 
     def _render_recently_updated(self, tag: Tag) -> str:
         max_val = self._direct_parameter_text(tag, 'max') or '15'
@@ -979,7 +1049,21 @@ class Converter:
             if display:
                 return f"[[{filename}|{display}]]"
             return f"[[{filename}]]"
+        has_ri_target = any(
+            isinstance(c, Tag) and (c.name or '').lower().startswith('ri:')
+            for c in tag.children
+        )
+        if not has_ri_target:
+            target = sanitize_title(self.page_title)
+            if display:
+                return f"[[{target}|{display}]]"
+            return f"[[{target}]]"
         return display
+
+    INLINE_IMAGE_PARENTS = frozenset({
+        'p', 'span', 'strong', 'b', 'em', 'i', 'u', 'sub', 'sup',
+        'code', 'a', 'pre', 'td', 'th', 'caption',
+    })
 
     def _render_ac_image(self, tag: Tag) -> str:
         attach = tag.find('ri:attachment')
@@ -1001,7 +1085,10 @@ class Converter:
                     '> > [!indent]\n'
                     f'> > {wikilink}\n\n'
                 )
-            return wikilink
+            parent_name = (getattr(tag.parent, 'name', None) or '').lower()
+            if parent_name in self.INLINE_IMAGE_PARENTS:
+                return wikilink
+            return f'\n\n{wikilink}\n\n'
         url = tag.find('ri:url')
         if url is not None:
             return f"![]({url.attrs.get('ri:value', '')})"
