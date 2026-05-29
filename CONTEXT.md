@@ -1,3 +1,7 @@
+---
+parent:
+  - "[[confluence-2-obsidian]]"
+---
 # confluence-2-obsidian Context
 
 ## Glossary
